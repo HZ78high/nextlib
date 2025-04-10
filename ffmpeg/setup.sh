@@ -2,9 +2,9 @@
 
 # Versions
 VPX_VERSION=1.13.0
-MBEDTLS_VERSION=3.4.1
+MBEDTLS_VERSION=3.6.3
 FFMPEG_VERSION=6.0
-
+ANDROID_NDK_HOME=/home/hyz/_Android/ndk/android-ndk-r28
 # Directories
 BASE_DIR=$(cd "$(dirname "$0")" && pwd)
 BUILD_DIR=$BASE_DIR/build
@@ -35,7 +35,7 @@ esac
 
 # Build tools
 TOOLCHAIN_PREFIX="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${HOST_PLATFORM}"
-CMAKE_EXECUTABLE=${ANDROID_SDK_HOME}/cmake/3.22.1/bin/cmake
+CMAKE_EXECUTABLE=/mnt/c/_Linux/cmake-4.0.0-linux-x86_64/bin/cmake
 
 mkdir -p $SOURCES_DIR
 

@@ -9,7 +9,7 @@ plugins {
 android {
     namespace = "io.github.anilbeesetti.nextlib.mediainfo"
 
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
 
@@ -44,14 +44,20 @@ android {
             version = "3.22.1"
         }
     }
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+        }
+    }
 }
 
 // Gradle task to setup ffmpeg
 val ffmpegSetup by tasks.registering(Exec::class) {
     workingDir = file("../ffmpeg")
     // export ndk path and run bash script
-    environment("ANDROID_SDK_HOME", android.sdkDirectory.absolutePath)
-    environment("ANDROID_NDK_HOME", android.ndkDirectory.absolutePath)
+//    val winToWslPath: (String) -> String = { it.replace("C:\\", "/mnt/c/").replace("\\", "/") }
+//    environment("ANDROID_SDK_HOME", winToWslPath(android.sdkDirectory.absolutePath))
+//    environment("ANDROID_NDK_HOME", winToWslPath(android.ndkDirectory.absolutePath))
     commandLine("bash", "setup.sh")
 }
 
@@ -65,12 +71,15 @@ afterEvaluate {
     publishing {
         publications {
             create<MavenPublication>("mavenJava") {
-                groupId = "io.github.anilbeesetti"
+                groupId = "com.fuck"
                 artifactId = "nextlib-mediainfo"
-                version = "1.0"
+                version = "1.0.0"
 
                 from(components["release"])
             }
+        }
+        repositories {
+            mavenLocal()
         }
     }
 }
