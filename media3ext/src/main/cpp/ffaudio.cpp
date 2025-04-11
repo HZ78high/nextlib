@@ -152,45 +152,48 @@ int decodePacket(AVCodecContext *context, AVPacket *packet,
         if (context->opaque) {
             resampleContext = (SwrContext *) context->opaque;
         } else {
-//            resampleContext = swr_alloc();
+            resampleContext = swr_alloc();
+            av_opt_set_chlayout(resampleContext, "in_chlayout", &context->ch_layout, 0);
+            av_opt_set_chlayout(resampleContext, "out_chlayout", &context->ch_layout, 0);
 //            av_opt_set_int(resampleContext, "in_channel_layout", channelLayout, 0);
 //            av_opt_set_int(resampleContext, "out_channel_layout", channelLayout, 0);
-//            av_opt_set_int(resampleContext, "in_sample_rate", sampleRate, 0);
-//            av_opt_set_int(resampleContext, "out_sample_rate", sampleRate, 0);
-//            av_opt_set_int(resampleContext, "in_sample_fmt", sampleFormat, 0);
-//            // The output format is always the requested format.
-//            av_opt_set_int(resampleContext, "out_sample_fmt",
-//                           context->request_sample_fmt, 0);
-//            result = swr_init(resampleContext);
-//            if (result < 0) {
-//                logError("swr_init", result);
-//                av_frame_free(&frame);
-//                return transformError(result);
-//            }
-            resampleContext = swr_alloc();
-
-            AVChannelLayout outLayout;
-            av_channel_layout_copy(&outLayout, &context->ch_layout);
-
-            result = swr_alloc_set_opts2(&resampleContext,
-                                         &outLayout, context->request_sample_fmt, sampleRate,
-                                         &context->ch_layout, sampleFormat, sampleRate,
-                                         0, nullptr);
-
-            if (result < 0) {
-                logError("swr_alloc_set_opts2", result);
-                av_channel_layout_uninit(&outLayout);
-                av_frame_free(&frame);
-                return transformError(result);
-            }
+            av_opt_set_int(resampleContext, "in_sample_rate", sampleRate, 0);
+            av_opt_set_int(resampleContext, "out_sample_rate", sampleRate, 0);
+            av_opt_set_sample_fmt(resampleContext, "in_sample_fmt", sampleFormat, 0);
+            // The output format is always the requested format.
+            av_opt_set_sample_fmt(resampleContext, "out_sample_fmt",
+                           context->request_sample_fmt, 0);
             result = swr_init(resampleContext);
             if (result < 0) {
                 logError("swr_init", result);
-                av_channel_layout_uninit(&outLayout);
                 av_frame_free(&frame);
+                swr_free(&resampleContext);
                 return transformError(result);
             }
-            av_channel_layout_uninit(&outLayout);
+//            resampleContext = swr_alloc();
+//
+//            AVChannelLayout outLayout;
+//            av_channel_layout_copy(&outLayout, &context->ch_layout);
+//
+//            result = swr_alloc_set_opts2(&resampleContext,
+//                                         &outLayout, context->request_sample_fmt, sampleRate,
+//                                         &context->ch_layout, sampleFormat, sampleRate,
+//                                         0, nullptr);
+//
+//            if (result < 0) {
+//                logError("swr_alloc_set_opts2", result);
+//                av_channel_layout_uninit(&outLayout);
+//                av_frame_free(&frame);
+//                return transformError(result);
+//            }
+//            result = swr_init(resampleContext);
+//            if (result < 0) {
+//                logError("swr_init", result);
+//                av_channel_layout_uninit(&outLayout);
+//                av_frame_free(&frame);
+//                return transformError(result);
+//            }
+//            av_channel_layout_uninit(&outLayout);
             context->opaque = resampleContext;
         }
         int inSampleSize = av_get_bytes_per_sample(sampleFormat);
