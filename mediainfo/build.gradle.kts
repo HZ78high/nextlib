@@ -25,7 +25,7 @@ android {
             abiFilters += listOf("x86", "x86_64", "armeabi-v7a", "arm64-v8a")
         }
 
-        ndkVersion = "25.2.9519653"
+        ndkVersion = "28.0.13004108"
     }
 
     compileOptions {
@@ -41,7 +41,7 @@ android {
     externalNativeBuild {
         cmake {
             path("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
+            //version = "3.31.6"
         }
     }
     publishing {
@@ -73,7 +73,7 @@ afterEvaluate {
             create<MavenPublication>("mavenJava") {
                 groupId = "com.fuck"
                 artifactId = "nextlib-mediainfo"
-                version = "1.0.0"
+                version = "1.0.1"
 
                 from(components["release"])
             }

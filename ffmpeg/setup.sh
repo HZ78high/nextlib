@@ -1,16 +1,18 @@
 #!/bin/bash
 
 # Versions
-VPX_VERSION=1.13.0
+VPX_VERSION=1.15.1
 MBEDTLS_VERSION=3.6.3
-FFMPEG_VERSION=6.0
-ANDROID_NDK_HOME=/home/hyz/_Android/ndk/android-ndk-r28
+FFMPEG_VERSION=7.1.1
+ANDROID_NDK_HOME=/home/hyz/Android-dv/nkd/android-ndk-r28
+CMAKE_HOME=/mnt/c/_Linux/cmake-4.0.0-linux-x86_64
 # Directories
 BASE_DIR=$(cd "$(dirname "$0")" && pwd)
 BUILD_DIR=$BASE_DIR/build
 OUTPUT_DIR=$BASE_DIR/output
 SOURCES_DIR=$BASE_DIR/sources
 FFMPEG_DIR=$SOURCES_DIR/ffmpeg-$FFMPEG_VERSION
+FFMPEG_DIR_OLD=$SOURCES_DIR/ffmpeg-6.0
 VPX_DIR=$SOURCES_DIR/libvpx-$VPX_VERSION
 MBEDTLS_DIR=$SOURCES_DIR/mbedtls-$MBEDTLS_VERSION
 
@@ -34,8 +36,8 @@ msys)
 esac
 
 # Build tools
-TOOLCHAIN_PREFIX="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${HOST_PLATFORM}"
-CMAKE_EXECUTABLE=/mnt/c/_Linux/cmake-4.0.0-linux-x86_64/bin/cmake
+export TOOLCHAIN_PREFIX="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${HOST_PLATFORM}"
+export CMAKE_EXECUTABLE=$CMAKE_HOME/bin/cmake
 
 mkdir -p $SOURCES_DIR
 
@@ -66,6 +68,17 @@ function downloadFfmpeg() {
   echo "Downloading FFmpeg source code of version $FFMPEG_VERSION..."
   FFMPEG_FILE=ffmpeg-$FFMPEG_VERSION.tar.gz
   curl -L "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz" -o $FFMPEG_FILE
+  [ -e $FFMPEG_FILE ] || { echo "$FFMPEG_FILE does not exist. Exiting..."; exit 1; }
+  tar -zxf $FFMPEG_FILE
+  rm $FFMPEG_FILE
+  popd
+}
+
+function downloadFfmpegX86() {
+  pushd $SOURCES_DIR
+  echo "Downloading FFmpeg source code of version 6.0..."
+  FFMPEG_FILE=ffmpeg-6.0.tar.gz
+  curl -L "https://ffmpeg.org/releases/ffmpeg-6.0.tar.gz" -o $FFMPEG_FILE
   [ -e $FFMPEG_FILE ] || { echo "$FFMPEG_FILE does not exist. Exiting..."; exit 1; }
   tar -zxf $FFMPEG_FILE
   rm $FFMPEG_FILE
@@ -160,7 +173,9 @@ function buildMbedTLS() {
 }
 
 function buildFfmpeg() {
-  pushd $FFMPEG_DIR
+  F_DIR="${2:-$FFMPEG_DIR}"
+  ABIS="${1:-$ANDROID_ABIS}"
+  pushd $F_DIR
   EXTRA_BUILD_CONFIGURATION_FLAGS=""
   COMMON_OPTIONS=""
 
@@ -170,7 +185,7 @@ function buildFfmpeg() {
   done
 
   # Build FFmpeg for each architecture and platform
-  for ABI in $ANDROID_ABIS; do
+  for ABI in $ABIS; do
 
     # Set up environment variables
     case $ABI in
@@ -192,7 +207,7 @@ function buildFfmpeg() {
       ;;
     x86_64)
       TOOLCHAIN=x86_64-linux-android21-
-      CPU=x86_64
+      CPU=x86-64-v2
       ARCH=x86_64
       ;;
     *)
@@ -262,7 +277,8 @@ function buildFfmpeg() {
   popd
 }
 
-if [[ ! -d "$OUTPUT_DIR" && ! -d "$BUILD_DIR" ]]; then
+#if [[ ! -d "$OUTPUT_DIR" && ! -d "$BUILD_DIR" ]]; then
+if [[ ! -d "$OUTPUT_DIR" ]]; then
   # Download MbedTLS source code if it doesn't exist
   if [[ ! -d "$MBEDTLS_DIR" ]]; then
     downloadMbedTLS
@@ -276,6 +292,10 @@ if [[ ! -d "$OUTPUT_DIR" && ! -d "$BUILD_DIR" ]]; then
   # Download Ffmpeg source code if it doesn't exist
   if [[ ! -d "$FFMPEG_DIR" ]]; then
     downloadFfmpeg
+  fi
+
+  if [[ ! -d "$FFMPEG_DIR_OLD" ]]; then
+    downloadFfmpegX86
   fi
 
   # Building library
