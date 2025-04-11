@@ -81,12 +81,56 @@ struct JniContext {
     int native_window_height = 0;
 };
 
+//JniContext *createVideoContext(JNIEnv *env,
+//                               AVCodec *codec,
+//                               jbyteArray extraData,
+//                               jint threads) {
+//    auto *jniContext = new JniContext();
+//
+//    AVCodecContext *codecContext = avcodec_alloc_context3(codec);
+//    if (!codecContext) {
+//        LOGE("Failed to allocate context.");
+//        return nullptr;
+//    }
+//
+//    if (extraData) {
+//        jsize size = env->GetArrayLength(extraData);
+//        codecContext->extradata_size = size;
+//        codecContext->extradata = (uint8_t *) av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
+//        if (!codecContext->extradata) {
+//            LOGE("Failed to allocate extradata.");
+//            releaseContext(codecContext);
+//            return nullptr;
+//        }
+//        env->GetByteArrayRegion(extraData, 0, size, (jbyte *) codecContext->extradata);
+//    }
+//
+//    codecContext->thread_count = threads;
+//    codecContext->err_recognition = AV_EF_IGNORE_ERR;
+//    int result = avcodec_open2(codecContext, codec, nullptr);
+//    if (result < 0) {
+//        logError("avcodec_open2", result);
+//        releaseContext(codecContext);
+//        return nullptr;
+//    }
+//
+//    jniContext->codecContext = codecContext;
+//
+//    // Populate JNI References.
+//    jclass outputBufferClass = env->FindClass("androidx/media3/decoder/VideoDecoderOutputBuffer");
+//    jniContext->data_field = env->GetFieldID(outputBufferClass, "data", "Ljava/nio/ByteBuffer;");
+//    jniContext->yuvStrides_field = env->GetFieldID(outputBufferClass, "yuvStrides", "[I");
+//    jniContext->yuvPlanes_field = env->GetFieldID(outputBufferClass, "yuvPlanes", "[Ljava/nio/ByteBuffer;");
+//    jniContext->init_for_yuv_frame_method = env->GetMethodID(outputBufferClass, "initForYuvFrame", "(IIIII)Z");
+//    jniContext->init_method = env->GetMethodID(outputBufferClass, "init", "(JILjava/nio/ByteBuffer;)V");
+//
+//    return jniContext;
+//}
+
 JniContext *createVideoContext(JNIEnv *env,
                                AVCodec *codec,
                                jbyteArray extraData,
                                jint threads) {
-    auto *jniContext = new JniContext();
-
     AVCodecContext *codecContext = avcodec_alloc_context3(codec);
     if (!codecContext) {
         LOGE("Failed to allocate context.");
@@ -114,15 +158,38 @@ JniContext *createVideoContext(JNIEnv *env,
         return nullptr;
     }
 
+    auto *jniContext = new JniContext();
+    if (!jniContext) {
+        LOGE("Failed to allocate JniContext.");
+        releaseContext(codecContext);
+        return nullptr;
+    }
+
     jniContext->codecContext = codecContext;
 
     // Populate JNI References.
     jclass outputBufferClass = env->FindClass("androidx/media3/decoder/VideoDecoderOutputBuffer");
+    if (!outputBufferClass) {
+        LOGE("Failed to find VideoDecoderOutputBuffer class.");
+        delete jniContext;
+        releaseContext(codecContext);
+        return nullptr;
+    }
+
     jniContext->data_field = env->GetFieldID(outputBufferClass, "data", "Ljava/nio/ByteBuffer;");
     jniContext->yuvStrides_field = env->GetFieldID(outputBufferClass, "yuvStrides", "[I");
     jniContext->yuvPlanes_field = env->GetFieldID(outputBufferClass, "yuvPlanes", "[Ljava/nio/ByteBuffer;");
     jniContext->init_for_yuv_frame_method = env->GetMethodID(outputBufferClass, "initForYuvFrame", "(IIIII)Z");
     jniContext->init_method = env->GetMethodID(outputBufferClass, "init", "(JILjava/nio/ByteBuffer;)V");
+
+    // 检查所有JNI引用是否成功获取
+    if (!jniContext->data_field || !jniContext->yuvStrides_field || !jniContext->yuvPlanes_field ||
+        !jniContext->init_for_yuv_frame_method || !jniContext->init_method) {
+        LOGE("Failed to get field or method IDs.");
+        delete jniContext;
+        releaseContext(codecContext);
+        return nullptr;
+    }
 
     return jniContext;
 }

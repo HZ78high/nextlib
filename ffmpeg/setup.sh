@@ -297,9 +297,11 @@ if [[ ! -d "$OUTPUT_DIR" ]]; then
   if [[ ! -d "$FFMPEG_DIR_OLD" ]]; then
     downloadFfmpegX86
   fi
-
+  
   # Building library
-  buildMbedTLS
-  buildLibVpx
+  if [[ ! -d "$BASE_DIR" ]]; then
+    buildMbedTLS
+    buildLibVpx
+  fi  
   buildFfmpeg
 fi
