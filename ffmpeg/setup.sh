@@ -24,7 +24,7 @@ AOM_OUT_DIR=$BUILD_DIR/aom-$AOM_VERSION
 ANDROID_ABIS="x86 x86_64 armeabi-v7a arm64-v8a"
 ANDROID_PLATFORM=21
 ENABLED_DECODERS="vorbis opus flac alac pcm_mulaw pcm_alaw mp3 amrnb amrwb aac ac3 eac3 dca mlp truehd h264 hevc mpeg2video mpegvideo"
-JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || sysctl -n hw.pysicalcpu || echo 4)
+JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || sysctl -n hw.physicalcpu || echo 4)
 
 # Set up host platform variables
 HOST_PLATFORM="linux-x86_64"

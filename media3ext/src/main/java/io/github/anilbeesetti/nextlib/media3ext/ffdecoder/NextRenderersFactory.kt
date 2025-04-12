@@ -8,7 +8,9 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 
 
@@ -25,16 +27,18 @@ open class NextRenderersFactory(context: Context) : DefaultRenderersFactory(cont
         eventListener: AudioRendererEventListener,
         out: ArrayList<Renderer>
     ) {
-        super.buildAudioRenderers(
-            context,
-            extensionRendererMode,
-            mediaCodecSelector,
-            enableDecoderFallback,
-            audioSink,
-            eventHandler,
-            eventListener,
-            out
-        )
+        val audioRenderer =
+            MediaCodecAudioRenderer(
+                context,
+                codecAdapterFactory,
+                mediaCodecSelector,
+                enableDecoderFallback,
+                eventHandler,
+                eventListener,
+                audioSink
+            )
+        out.add(audioRenderer)
+
 
         if (extensionRendererMode == EXTENSION_RENDERER_MODE_OFF) return
 
@@ -63,16 +67,18 @@ open class NextRenderersFactory(context: Context) : DefaultRenderersFactory(cont
         allowedVideoJoiningTimeMs: Long,
         out: ArrayList<Renderer>
     ) {
-        super.buildVideoRenderers(
-            context,
-            extensionRendererMode,
-            mediaCodecSelector,
-            enableDecoderFallback,
-            eventHandler,
-            eventListener,
-            allowedVideoJoiningTimeMs,
-            out
-        )
+        val videoRenderer =
+            MediaCodecVideoRenderer.Builder(context)
+                .setCodecAdapterFactory(codecAdapterFactory)
+                .setMediaCodecSelector(mediaCodecSelector)
+                .setAllowedJoiningTimeMs(allowedVideoJoiningTimeMs)
+                .setEnableDecoderFallback(enableDecoderFallback)
+                .setEventHandler(eventHandler)
+                .setEventListener(eventListener)
+                .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
+                .build()
+        out.add(videoRenderer)
+
 
         if (extensionRendererMode == EXTENSION_RENDERER_MODE_OFF) return
 
