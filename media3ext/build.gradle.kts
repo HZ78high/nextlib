@@ -77,7 +77,7 @@ afterEvaluate {
             create<MavenPublication>("mavenJava") {
                 groupId = "com.fuck"
                 artifactId = "nextlib-media3ext"
-                version = "1.0.1"
+                version = libs.versions.publish.get()
 
                 from(components["release"])
             }

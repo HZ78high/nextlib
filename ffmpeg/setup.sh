@@ -2,6 +2,7 @@
 
 # Versions
 VPX_VERSION=1.15.1
+AOM_VERSION=3.12.0
 MBEDTLS_VERSION=3.6.3
 FFMPEG_VERSION=7.1.1
 ANDROID_NDK_HOME=/home/hyz/Android-dv/nkd/android-ndk-r28
@@ -12,14 +13,17 @@ BUILD_DIR=$BASE_DIR/build
 OUTPUT_DIR=$BASE_DIR/output
 SOURCES_DIR=$BASE_DIR/sources
 FFMPEG_DIR=$SOURCES_DIR/ffmpeg-$FFMPEG_VERSION
-FFMPEG_DIR_OLD=$SOURCES_DIR/ffmpeg-6.0
+# FFMPEG_DIR_OLD=$SOURCES_DIR/ffmpeg-6.0
 VPX_DIR=$SOURCES_DIR/libvpx-$VPX_VERSION
+AOM_DIR=$SOURCES_DIR/libaom-$AOM_VERSION
 MBEDTLS_DIR=$SOURCES_DIR/mbedtls-$MBEDTLS_VERSION
+VPX_OUT_DIR=$BUILD_DIR/vpx-$VPX_VERSION
+AOM_OUT_DIR=$BUILD_DIR/aom-$AOM_VERSION
 
 # Configuration
 ANDROID_ABIS="x86 x86_64 armeabi-v7a arm64-v8a"
 ANDROID_PLATFORM=21
-ENABLED_DECODERS="vorbis opus flac alac pcm_mulaw pcm_alaw mp3 amrnb amrwb aac ac3 eac3 dca mlp truehd h264 hevc mpeg2video mpegvideo libvpx_vp8 libvpx_vp9"
+ENABLED_DECODERS="vorbis opus flac alac pcm_mulaw pcm_alaw mp3 amrnb amrwb aac ac3 eac3 dca mlp truehd h264 hevc mpeg2video mpegvideo"
 JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || sysctl -n hw.pysicalcpu || echo 4)
 
 # Set up host platform variables
@@ -52,6 +56,17 @@ function downloadLibVpx() {
   popd
 }
 
+function downloadLibAom() {
+  pushd $SOURCES_DIR
+  echo "Downloading Aom source code of version $AOM_VERSION..."
+  AOM_FILE=libaom-$AOM_VERSION.tar.gz
+  curl -L "https://storage.googleapis.com/aom-releases/libaom-${AOM_VERSION}.tar.gz" -o $AOM_FILE
+  [ -e $AOM_FILE ] || { echo "$AOM_FILE does not exist. Exiting..."; exit 1; }
+  tar -zxf $AOM_FILE
+  rm $AOM_FILE
+  popd
+}
+
 function downloadMbedTLS() {
   pushd $SOURCES_DIR
   echo "Downloading mbedtls source code of version $MBEDTLS_VERSION..."
@@ -74,31 +89,32 @@ function downloadFfmpeg() {
   popd
 }
 
-function downloadFfmpegX86() {
-  pushd $SOURCES_DIR
-  echo "Downloading FFmpeg source code of version 6.0..."
-  FFMPEG_FILE=ffmpeg-6.0.tar.gz
-  curl -L "https://ffmpeg.org/releases/ffmpeg-6.0.tar.gz" -o $FFMPEG_FILE
-  [ -e $FFMPEG_FILE ] || { echo "$FFMPEG_FILE does not exist. Exiting..."; exit 1; }
-  tar -zxf $FFMPEG_FILE
-  rm $FFMPEG_FILE
-  popd
-}
+# function downloadFfmpegX86() {
+#   pushd $SOURCES_DIR
+#   echo "Downloading FFmpeg source code of version 6.0..."
+#   FFMPEG_FILE=ffmpeg-6.0.tar.gz
+#   curl -L "https://ffmpeg.org/releases/ffmpeg-6.0.tar.gz" -o $FFMPEG_FILE
+#   [ -e $FFMPEG_FILE ] || { echo "$FFMPEG_FILE does not exist. Exiting..."; exit 1; }
+#   tar -zxf $FFMPEG_FILE
+#   rm $FFMPEG_FILE
+#   popd
+# }
 
 function buildLibVpx() {
   pushd $VPX_DIR
 
-  VPX_AS=${TOOLCHAIN_PREFIX}/bin/llvm-as
   for ABI in $ANDROID_ABIS; do
     # Set up environment variables
     case $ABI in
     armeabi-v7a)
-      EXTRA_BUILD_FLAGS="--force-target=armv7-android-gcc --disable-neon"
-      TOOLCHAIN=armv7a-linux-androideabi21-
+      EXTRA_BUILD_FLAGS="--force-target=armv7-android-gcc --enable-neon --enable-neon-asm"
+      TOOLCHAIN=armv7a-linux-androideabi21-      
+      VPX_AS=${TOOLCHAIN_PREFIX}/bin/${TOOLCHAIN}clang
       ;;
     arm64-v8a)
-      EXTRA_BUILD_FLAGS="--force-target=armv8-android-gcc"
-      TOOLCHAIN=aarch64-linux-android21-
+      EXTRA_BUILD_FLAGS="--force-target=armv8-android-gcc --enable-neon"
+      TOOLCHAIN=aarch64-linux-android21-      
+      VPX_AS=${TOOLCHAIN_PREFIX}/bin/${TOOLCHAIN}clang
       ;;
     x86)
       EXTRA_BUILD_FLAGS="--force-target=x86-android-gcc --disable-sse2 --disable-sse3 --disable-ssse3 --disable-sse4_1 --disable-avx --disable-avx2 --enable-pic"
@@ -124,7 +140,7 @@ function buildLibVpx() {
       STRIP=${TOOLCHAIN_PREFIX}/bin/llvm-strip \
       NM=${TOOLCHAIN_PREFIX}/bin/llvm-nm \
       ./configure \
-      --prefix=$BUILD_DIR/external/$ABI \
+      --prefix=$VPX_OUT_DIR/$ABI \
       --libc="${TOOLCHAIN_PREFIX}/sysroot" \
       --enable-vp8 \
       --enable-vp9 \
@@ -172,32 +188,66 @@ function buildMbedTLS() {
     popd
 }
 
+function buildLibAom() {
+    pushd $AOM_DIR
+
+    for ABI in $ANDROID_ABIS; do
+
+      CMAKE_BUILD_DIR=$AOM_DIR/aom_build_${ABI}
+      rm -rf ${CMAKE_BUILD_DIR}
+      mkdir -p ${CMAKE_BUILD_DIR}
+      cd ${CMAKE_BUILD_DIR}
+
+      ${CMAKE_EXECUTABLE} .. \
+       -DCMAKE_BUILD_TYPE=Release \
+       -DANDROID_PLATFORM=${ANDROID_PLATFORM} \
+       -DANDROID_ABI=$ABI \
+       -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake \
+       -DCMAKE_INSTALL_PREFIX=${AOM_OUT_DIR}/$ABI \
+       -DCONFIG_AV1_ENCODER=0 \
+       -DENABLE_DOCS=0 \
+       -DENABLE_TESTS=0 \
+       -DCONFIG_RUNTIME_CPU_DETECT=0 \
+       -DCONFIG_WEBM_IO=0 \
+       -DENABLE_EXAMPLES=0 \
+       -DCONFIG_REALTIME_ONLY=1
+
+
+      make -j$JOBS
+      make install
+
+    done
+    popd
+}
+
 function buildFfmpeg() {
-  F_DIR="${2:-$FFMPEG_DIR}"
+  # F_DIR="${2:-$FFMPEG_DIR}"
   ABIS="${1:-$ANDROID_ABIS}"
-  pushd $F_DIR
-  EXTRA_BUILD_CONFIGURATION_FLAGS=""
-  COMMON_OPTIONS=""
+  F_DIR=$FFMPEG_DIR
+  pushd $F_DIR  
+  COMMON_OPTIONS="--enable-pic"
 
   # Add enabled decoders to FFmpeg build configuration
   for decoder in $ENABLED_DECODERS; do
-    COMMON_OPTIONS="${COMMON_OPTIONS} --enable-decoder=${decoder}"
+    COMMON_OPTIONS+=" --enable-decoder=${decoder}"
   done
 
   # Build FFmpeg for each architecture and platform
   for ABI in $ABIS; do
-
+    EXTRA_BUILD_CONFIGURATION_FLAGS=""
     # Set up environment variables
     case $ABI in
     armeabi-v7a)
       TOOLCHAIN=armv7a-linux-androideabi21-
       CPU=armv7-a
       ARCH=arm
+      EXTRA_BUILD_CONFIGURATION_FLAGS="--enable-neon"
       ;;
     arm64-v8a)
       TOOLCHAIN=aarch64-linux-android21-
       CPU=armv8-a
       ARCH=aarch64
+      EXTRA_BUILD_CONFIGURATION_FLAGS="--enable-neon"
       ;;
     x86)
       TOOLCHAIN=i686-linux-android21-
@@ -215,14 +265,14 @@ function buildFfmpeg() {
       exit 1
       ;;
     esac
-
+    export PKG_CONFIG_PATH=$AOM_OUT_DIR/$ABI/lib/pkgconfig:$PKG_CONFIG_PATH
     # Referencing dependencies without pkgconfig
-    DEP_CFLAGS="-I$BUILD_DIR/external/$ABI/include"
-    DEP_LD_FLAGS="-L$BUILD_DIR/external/$ABI/lib"
+    DEP_CFLAGS="-I$AOM_OUT_DIR/$ABI/include -I$VPX_OUT_DIR/$ABI/include -I$BUILD_DIR/external/$ABI/include"
+    DEP_LD_FLAGS="-L$AOM_OUT_DIR/$ABI/lib -L$VPX_OUT_DIR/$ABI/lib -L$BUILD_DIR/external/$ABI/lib"
 
     # Configure FFmpeg build
     ./configure \
-      --prefix=$BUILD_DIR/$ABI \
+      --prefix=$BUILD_DIR/temp/$ABI \
       --enable-cross-compile \
       --arch=$ARCH \
       --cpu=$CPU \
@@ -251,6 +301,7 @@ function buildFfmpeg() {
       --enable-swresample \
       --enable-avformat \
       --enable-libvpx \
+      --enable-libaom \
       --enable-protocol=file,http,https,mmsh,mmst,pipe,rtmp,rtmps,rtmpt,rtmpts,rtp,tls \
       --enable-version3 \
       --enable-mbedtls \
@@ -267,11 +318,11 @@ function buildFfmpeg() {
 
     OUTPUT_LIB=${OUTPUT_DIR}/lib/${ABI}
     mkdir -p "${OUTPUT_LIB}"
-    cp "${BUILD_DIR}"/"${ABI}"/lib/*.so "${OUTPUT_LIB}"
+    cp "${BUILD_DIR}"/temp/"${ABI}"/lib/*.so "${OUTPUT_LIB}"
 
     OUTPUT_HEADERS=${OUTPUT_DIR}/include/${ABI}
     mkdir -p "${OUTPUT_HEADERS}"
-    cp -r "${BUILD_DIR}"/"${ABI}"/include/* "${OUTPUT_HEADERS}"
+    cp -r "${BUILD_DIR}"/temp/"${ABI}"/include/* "${OUTPUT_HEADERS}"
 
   done
   popd
@@ -289,19 +340,28 @@ if [[ ! -d "$OUTPUT_DIR" ]]; then
     downloadLibVpx
   fi
 
+  if [[ ! -d "$AOM_DIR" ]]; then
+    downloadLibAom
+  fi
+
   # Download Ffmpeg source code if it doesn't exist
   if [[ ! -d "$FFMPEG_DIR" ]]; then
     downloadFfmpeg
   fi
 
-  if [[ ! -d "$FFMPEG_DIR_OLD" ]]; then
-    downloadFfmpegX86
-  fi
+  # if [[ ! -d "$FFMPEG_DIR_OLD" ]]; then
+  #   downloadFfmpegX86
+  # fi
   
-  # Building library
-  if [[ ! -d "$BASE_DIR" ]]; then
+  #Building library
+  if [[ ! -d "${BUILD_DIR}/external" ]]; then
     buildMbedTLS
+  fi 
+  if [[ ! -d "$VPX_OUT_DIR" ]]; then
     buildLibVpx
-  fi  
-  buildFfmpeg
+  fi
+  if [[ ! -d "$AOM_OUT_DIR" ]]; then
+    buildLibAom
+  fi   
+  buildFfmpeg "armeabi-v7a arm64-v8a x86_64 x86"
 fi
