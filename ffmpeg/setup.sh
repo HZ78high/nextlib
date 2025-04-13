@@ -23,7 +23,7 @@ export MEDTLS_OUT_DIR=$BUILD_DIR/mbedtls-$MBEDTLS_VERSION
 
 # Configuration
 ANDROID_ABIS="x86 x86_64 armeabi-v7a arm64-v8a"
-ANDROID_PLATFORM=21
+export ANDROID_PLATFORM=21
 ENABLED_DECODERS="vorbis opus flac alac pcm_mulaw pcm_alaw mp3 amrnb amrwb aac ac3 eac3 dca mlp truehd h264 hevc mpeg2video mpegvideo"
 export JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || sysctl -n hw.physicalcpu || echo 4)
 
@@ -102,9 +102,11 @@ function downloadFfmpeg() {
 # }
 
 function buildLibVpx() {
+  local ABI
   pushd $VPX_DIR
 
   for ABI in $ANDROID_ABIS; do
+  {
     # Set up environment variables
     case $ABI in
     armeabi-v7a)
@@ -132,7 +134,10 @@ function buildLibVpx() {
       exit 1
       ;;
     esac
-
+    local BUILD_DIR=${VPX_DIR}/build_vpx_${ABI}
+    rm -rf $BUILD_DIR
+    mkdir -p $BUILD_DIR
+    cd $BUILD_DIR
     CC=${TOOLCHAIN_PREFIX}/bin/${TOOLCHAIN}clang \
       CXX=${CC}++ \
       LD=${CC} \
@@ -140,7 +145,7 @@ function buildLibVpx() {
       AS=${VPX_AS} \
       STRIP=${TOOLCHAIN_PREFIX}/bin/llvm-strip \
       NM=${TOOLCHAIN_PREFIX}/bin/llvm-nm \
-      ./configure \
+      ../configure \
       --prefix=$VPX_OUT_DIR/$ABI \
       --libc="${TOOLCHAIN_PREFIX}/sysroot" \
       --enable-vp8 \
@@ -158,10 +163,11 @@ function buildLibVpx() {
       --disable-runtime-cpu-detect \
       ${EXTRA_BUILD_FLAGS}
 
-    make clean
     make -j$JOBS
     make install
+  } &
   done
+  wait
   popd
 }
 function buildMb(){
@@ -184,8 +190,8 @@ function buildMb(){
 
 }
 function buildMbedTLS() {
+    local ABI
     pushd $MBEDTLS_DIR
-
     for ABI in $ANDROID_ABIS; do
       (buildMb $ABI) &
     done
@@ -193,36 +199,41 @@ function buildMbedTLS() {
     popd
 }
 
+function buildAom(){
+  local ABI=$1
+  local CMAKE_BUILD_DIR=$AOM_DIR/aom_build_${ABI}
+  rm -rf ${CMAKE_BUILD_DIR}
+  mkdir -p ${CMAKE_BUILD_DIR}
+  cd ${CMAKE_BUILD_DIR}
+
+  ${CMAKE_EXECUTABLE} .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DANDROID_PLATFORM=${ANDROID_PLATFORM} \
+    -DANDROID_ABI=$ABI \
+    -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake \
+    -DCMAKE_INSTALL_PREFIX=${AOM_OUT_DIR}/$ABI \
+    -DCONFIG_AV1_ENCODER=0 \
+    -DENABLE_DOCS=0 \
+    -DENABLE_TESTS=0 \
+    -DCONFIG_RUNTIME_CPU_DETECT=0 \
+    -DCONFIG_WEBM_IO=0 \
+    -DENABLE_EXAMPLES=0 \
+    -DCONFIG_REALTIME_ONLY=1
+
+
+  make -j$JOBS
+  make install
+
+}
+
 function buildLibAom() {
-    pushd $AOM_DIR
-
-    for ABI in $ANDROID_ABIS; do
-
-      CMAKE_BUILD_DIR=$AOM_DIR/aom_build_${ABI}
-      rm -rf ${CMAKE_BUILD_DIR}
-      mkdir -p ${CMAKE_BUILD_DIR}
-      cd ${CMAKE_BUILD_DIR}
-
-      ${CMAKE_EXECUTABLE} .. \
-       -DCMAKE_BUILD_TYPE=Release \
-       -DANDROID_PLATFORM=${ANDROID_PLATFORM} \
-       -DANDROID_ABI=$ABI \
-       -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake \
-       -DCMAKE_INSTALL_PREFIX=${AOM_OUT_DIR}/$ABI \
-       -DCONFIG_AV1_ENCODER=0 \
-       -DENABLE_DOCS=0 \
-       -DENABLE_TESTS=0 \
-       -DCONFIG_RUNTIME_CPU_DETECT=0 \
-       -DCONFIG_WEBM_IO=0 \
-       -DENABLE_EXAMPLES=0 \
-       -DCONFIG_REALTIME_ONLY=1
-
-
-      make -j$JOBS
-      make install
-
-    done
-    popd
+  local ABI
+  pushd $AOM_DIR
+  for ABI in $ANDROID_ABIS; do
+    (buildAom $ABI) &
+  done
+  wait
+  popd
 }
 
 function buildFf(){
@@ -324,10 +335,10 @@ function buildFf(){
   local OUTPUT_HEADERS=${OUTPUT_DIR}/include/${ABI}
   mkdir -p "${OUTPUT_HEADERS}"
   cp -r "${BUILD_DIR}"/temp/"${ABI}"/include/* "${OUTPUT_HEADERS}"
-  popd
 }
 
 function buildFfmpeg() {
+  local ABI
   # F_DIR="${2:-$FFMPEG_DIR}"
   local ABIS="${1:-$ANDROID_ABIS}"
   local F_DIR=$FFMPEG_DIR
@@ -337,18 +348,14 @@ function buildFfmpeg() {
   for decoder in $ENABLED_DECODERS; do
     COMMON_OPTIONS+=" --enable-decoder=${decoder}"
   done
-  new_pkg_config_path=""
+  local new_pkg_config_path=""
   for ABI in $ABIS; do
-    new_pkg_config_path=$AOM_OUT_DIR/$ABI/lib/pkgconfig:$new_pkg_config_path
+    local temp="$ABI/lib/pkgconfig"
+    new_pkg_config_path=$MEDTLS_OUT_DIR/$temp:$VPX_OUT_DIR/$temp:$AOM_OUT_DIR/$temp:$new_pkg_config_path
   done
   new_pkg_config_path=$(echo "$new_pkg_config_path" | sed 's/:$//')
   # 更新 PKG_CONFIG_PATH 变量
   export PKG_CONFIG_PATH="$new_pkg_config_path:$PKG_CONFIG_PATH"
-  # (
-  # pkg-config --cflags --libs aom
-  # pkg-config --cflags --libs vpx
-  # pkg-config --cflags --libs mbedtls
-  # )
   # Build FFmpeg for each architecture and platform
   for ABI in $ABIS; do
     (buildFf $ABI "$COMMON_OPTIONS") &
@@ -361,38 +368,38 @@ function buildFfmpeg() {
 if [[ ! -d "$OUTPUT_DIR" ]]; then
   # Download MbedTLS source code if it doesn't exist
   if [[ ! -d "$MBEDTLS_DIR" ]]; then
-    downloadMbedTLS &
+    downloadMbedTLS
   fi
 
   # Download Vpx source code if it doesn't exist
   if [[ ! -d "$VPX_DIR" ]]; then
-    downloadLibVpx &
+    downloadLibVpx
   fi
 
   if [[ ! -d "$AOM_DIR" ]]; then
-    downloadLibAom &
+    downloadLibAom
   fi
 
   # Download Ffmpeg source code if it doesn't exist
   if [[ ! -d "$FFMPEG_DIR" ]]; then
-    downloadFfmpeg &
+    downloadFfmpeg
   fi
 
   # if [[ ! -d "$FFMPEG_DIR_OLD" ]]; then
   #   downloadFfmpegX86
   # fi
 
-  wait
   
   #Building library
   if [[ ! -d "$MEDTLS_OUT_DIR" ]]; then
-    buildMbedTLS 
+    buildMbedTLS &
   fi 
   if [[ ! -d "$VPX_OUT_DIR" ]]; then
-    buildLibVpx 
+    buildLibVpx &
   fi
   if [[ ! -d "$AOM_OUT_DIR" ]]; then
-    buildLibAom 
+    buildLibAom &
   fi
+  wait
   buildFfmpeg
 fi
