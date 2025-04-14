@@ -4,28 +4,28 @@
 VPX_VERSION=1.15.1
 AOM_VERSION=3.12.0
 MBEDTLS_VERSION=3.6.3
-export FFMPEG_VERSION=7.1.1
-export ANDROID_NDK_HOME=/home/hyz/Android-dv/nkd/android-ndk-r28
-export CMAKE_HOME=/mnt/c/_Linux/cmake-4.0.0-linux-x86_64
+FFMPEG_VERSION=7.1.1
+ANDROID_NDK_HOME=/home/hyz/Android-dv/nkd/android-ndk-r28
+CMAKE_HOME=/mnt/c/_Linux/cmake-4.0.0-linux-x86_64
 # Directories
 BASE_DIR=$(cd "$(dirname "$0")" && pwd)
-export BUILD_DIR=$BASE_DIR/build
-export OUTPUT_DIR=$BASE_DIR/output
-export SOURCES_DIR=$BASE_DIR/sources
-export FFMPEG_DIR=$SOURCES_DIR/ffmpeg-$FFMPEG_VERSION
+BUILD_DIR=$BASE_DIR/build
+OUTPUT_DIR=$BASE_DIR/output
+SOURCES_DIR=$BASE_DIR/sources
+FFMPEG_DIR=$SOURCES_DIR/ffmpeg-$FFMPEG_VERSION
 # FFMPEG_DIR_OLD=$SOURCES_DIR/ffmpeg-6.0
 VPX_DIR=$SOURCES_DIR/libvpx-$VPX_VERSION
 AOM_DIR=$SOURCES_DIR/libaom-$AOM_VERSION
 MBEDTLS_DIR=$SOURCES_DIR/mbedtls-$MBEDTLS_VERSION
-export VPX_OUT_DIR=$BUILD_DIR/vpx-$VPX_VERSION
-export AOM_OUT_DIR=$BUILD_DIR/aom-$AOM_VERSION
-export MEDTLS_OUT_DIR=$BUILD_DIR/mbedtls-$MBEDTLS_VERSION
+VPX_OUT_DIR=$BUILD_DIR/vpx-$VPX_VERSION
+AOM_OUT_DIR=$BUILD_DIR/aom-$AOM_VERSION
+MEDTLS_OUT_DIR=$BUILD_DIR/mbedtls-$MBEDTLS_VERSION
 
 # Configuration
 ANDROID_ABIS="x86 x86_64 armeabi-v7a arm64-v8a"
-export ANDROID_PLATFORM=21
+ANDROID_PLATFORM=21
 ENABLED_DECODERS="vorbis opus flac alac pcm_mulaw pcm_alaw mp3 amrnb amrwb aac ac3 eac3 dca mlp truehd h264 hevc mpeg2video mpegvideo"
-export JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || sysctl -n hw.physicalcpu || echo 4)
+JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || sysctl -n hw.physicalcpu || echo 4)
 
 # Set up host platform variables
 HOST_PLATFORM="linux-x86_64"
@@ -41,8 +41,8 @@ msys)
 esac
 
 # Build tools
-export TOOLCHAIN_PREFIX="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${HOST_PLATFORM}"
-export CMAKE_EXECUTABLE=$CMAKE_HOME/bin/cmake
+TOOLCHAIN_PREFIX="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${HOST_PLATFORM}"
+CMAKE_EXECUTABLE=$CMAKE_HOME/bin/cmake
 
 mkdir -p $SOURCES_DIR
 
@@ -89,17 +89,6 @@ function downloadFfmpeg() {
   rm $FFMPEG_FILE
   popd
 }
-
-# function downloadFfmpegX86() {
-#   pushd $SOURCES_DIR
-#   echo "Downloading FFmpeg source code of version 6.0..."
-#   FFMPEG_FILE=ffmpeg-6.0.tar.gz
-#   curl -L "https://ffmpeg.org/releases/ffmpeg-6.0.tar.gz" -o $FFMPEG_FILE
-#   [ -e $FFMPEG_FILE ] || { echo "$FFMPEG_FILE does not exist. Exiting..."; exit 1; }
-#   tar -zxf $FFMPEG_FILE
-#   rm $FFMPEG_FILE
-#   popd
-# }
 
 function buildLibVpx() {
   local ABI
@@ -170,171 +159,64 @@ function buildLibVpx() {
   wait
   popd
 }
-function buildMb(){
-  local ABI=$1
-  local CMAKE_BUILD_DIR=$MBEDTLS_DIR/mbedtls_build_${ABI}
-  rm -rf ${CMAKE_BUILD_DIR}
-  mkdir -p ${CMAKE_BUILD_DIR}
-  cd ${CMAKE_BUILD_DIR}
 
-  ${CMAKE_EXECUTABLE} .. \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DANDROID_PLATFORM=${ANDROID_PLATFORM} \
-    -DANDROID_ABI=$ABI \
-    -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake \
-    -DCMAKE_INSTALL_PREFIX=$MEDTLS_OUT_DIR/$ABI \
-    -DENABLE_TESTING=0
-
-  make -j$JOBS
-  make install
-
-}
 function buildMbedTLS() {
     local ABI
     pushd $MBEDTLS_DIR
     for ABI in $ANDROID_ABIS; do
-      (buildMb $ABI) &
+    {
+      local CMAKE_BUILD_DIR=$MBEDTLS_DIR/mbedtls_build_${ABI}
+      rm -rf ${CMAKE_BUILD_DIR}
+      mkdir -p ${CMAKE_BUILD_DIR}
+      cd ${CMAKE_BUILD_DIR}
+
+      ${CMAKE_EXECUTABLE} .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DANDROID_PLATFORM=${ANDROID_PLATFORM} \
+        -DANDROID_ABI=$ABI \
+        -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake \
+        -DCMAKE_INSTALL_PREFIX=$MEDTLS_OUT_DIR/$ABI \
+        -DENABLE_TESTING=0
+
+      make -j$JOBS
+      make install
+    } &
     done
     wait
     popd
 }
 
-function buildAom(){
-  local ABI=$1
-  local CMAKE_BUILD_DIR=$AOM_DIR/aom_build_${ABI}
-  rm -rf ${CMAKE_BUILD_DIR}
-  mkdir -p ${CMAKE_BUILD_DIR}
-  cd ${CMAKE_BUILD_DIR}
-
-  ${CMAKE_EXECUTABLE} .. \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DANDROID_PLATFORM=${ANDROID_PLATFORM} \
-    -DANDROID_ABI=$ABI \
-    -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake \
-    -DCMAKE_INSTALL_PREFIX=${AOM_OUT_DIR}/$ABI \
-    -DCONFIG_AV1_ENCODER=0 \
-    -DENABLE_DOCS=0 \
-    -DENABLE_TESTS=0 \
-    -DCONFIG_RUNTIME_CPU_DETECT=0 \
-    -DCONFIG_WEBM_IO=0 \
-    -DENABLE_EXAMPLES=0 \
-    -DCONFIG_REALTIME_ONLY=1
-
-
-  make -j$JOBS
-  make install
-
-}
 
 function buildLibAom() {
   local ABI
   pushd $AOM_DIR
   for ABI in $ANDROID_ABIS; do
-    (buildAom $ABI) &
+  {
+    local CMAKE_BUILD_DIR=$AOM_DIR/aom_build_${ABI}
+    rm -rf ${CMAKE_BUILD_DIR}
+    mkdir -p ${CMAKE_BUILD_DIR}
+    cd ${CMAKE_BUILD_DIR}
+
+    ${CMAKE_EXECUTABLE} .. \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DANDROID_PLATFORM=${ANDROID_PLATFORM} \
+      -DANDROID_ABI=$ABI \
+      -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake \
+      -DCMAKE_INSTALL_PREFIX=${AOM_OUT_DIR}/$ABI \
+      -DCONFIG_AV1_ENCODER=0 \
+      -DENABLE_DOCS=0 \
+      -DENABLE_TESTS=0 \
+      -DCONFIG_RUNTIME_CPU_DETECT=0 \
+      -DCONFIG_WEBM_IO=0 \
+      -DENABLE_EXAMPLES=0 \
+      -DCONFIG_REALTIME_ONLY=1
+
+    make -j$JOBS
+    make install
+  } &
   done
   wait
   popd
-}
-
-function buildFf(){
-  local ABI=$1
-  local TOOLCHAIN
-  local CPU
-  local ARCH
-  local EXTRA_BUILD_CONFIGURATION_FLAGS=""
-  # Set up environment variables
-  case $ABI in
-  armeabi-v7a)
-    TOOLCHAIN=armv7a-linux-androideabi21-
-    CPU=armv7-a
-    ARCH=arm
-    EXTRA_BUILD_CONFIGURATION_FLAGS="--enable-neon"
-    ;;
-  arm64-v8a)
-    TOOLCHAIN=aarch64-linux-android21-
-    CPU=armv8-a
-    ARCH=aarch64
-    EXTRA_BUILD_CONFIGURATION_FLAGS="--enable-neon"
-    ;;
-  x86)
-    TOOLCHAIN=i686-linux-android21-
-    CPU=i686
-    ARCH=i686
-    EXTRA_BUILD_CONFIGURATION_FLAGS=--disable-asm
-    ;;
-  x86_64)
-    TOOLCHAIN=x86_64-linux-android21-
-    CPU=x86-64-v2
-    ARCH=x86_64
-    ;;
-  *)
-    echo "Unsupported architecture: $ABI"
-    exit 1
-    ;;
-  esac
-        
-  # Referencing dependencies without pkgconfig
-  local DEP_CFLAGS="-I$AOM_OUT_DIR/$ABI/include -I$VPX_OUT_DIR/$ABI/include -I$MEDTLS_OUT_DIR/$ABI/include"
-  local DEP_LD_FLAGS="-L$AOM_OUT_DIR/$ABI/lib -L$VPX_OUT_DIR/$ABI/lib -L$MEDTLS_OUT_DIR/$ABI/lib"  
-  local CMAKE_BUILD_DIR=${SOURCES_DIR}/temp_ff/${FFMPEG_VERSION}/ffmpeg_build_${ABI}
-  if [[ ! -d "$CMAKE_BUILD_DIR" ]]; then
-    mkdir -p $CMAKE_BUILD_DIR
-    cp -r ${FFMPEG_DIR}/* $CMAKE_BUILD_DIR
-  fi
-  cd ${CMAKE_BUILD_DIR}
-  # Configure FFmpeg build
-  ./configure \
-    --prefix=$BUILD_DIR/temp/$ABI \
-    --enable-cross-compile \
-    --arch=$ARCH \
-    --cpu=$CPU \
-    --cross-prefix="${TOOLCHAIN_PREFIX}/bin/$TOOLCHAIN" \
-    --nm="${TOOLCHAIN_PREFIX}/bin/llvm-nm" \
-    --ar="${TOOLCHAIN_PREFIX}/bin/llvm-ar" \
-    --ranlib="${TOOLCHAIN_PREFIX}/bin/llvm-ranlib" \
-    --strip="${TOOLCHAIN_PREFIX}/bin/llvm-strip" \
-    --extra-cflags="-O3 -fPIC $DEP_CFLAGS" \
-    --extra-ldflags="$DEP_LD_FLAGS" \
-    --pkg-config="$(which pkg-config)" \
-    --target-os=android \
-    --enable-shared \
-    --disable-static \
-    --disable-doc \
-    --disable-programs \
-    --disable-everything \
-    --disable-vulkan \
-    --disable-avdevice \
-    --disable-avformat \
-    --disable-postproc \
-    --disable-avfilter \
-    --disable-symver \
-    --enable-parsers \
-    --enable-demuxers \
-    --enable-swresample \
-    --enable-avformat \
-    --enable-libvpx \
-    --enable-libaom \
-    --enable-protocol=file,http,https,mmsh,mmst,pipe,rtmp,rtmps,rtmpt,rtmpts,rtp,tls \
-    --enable-version3 \
-    --enable-mbedtls \
-    --extra-ldexeflags=-pie \
-    --disable-debug \
-    ${EXTRA_BUILD_CONFIGURATION_FLAGS} \
-    $2
-
-  # Build FFmpeg
-  echo "Building FFmpeg for $ARCH..."
-  make clean
-  make -j$JOBS
-  make install
-
-  local OUTPUT_LIB=${OUTPUT_DIR}/lib/${ABI}
-  mkdir -p "${OUTPUT_LIB}"
-  cp "${BUILD_DIR}"/temp/"${ABI}"/lib/*.so "${OUTPUT_LIB}"
-
-  local OUTPUT_HEADERS=${OUTPUT_DIR}/include/${ABI}
-  mkdir -p "${OUTPUT_HEADERS}"
-  cp -r "${BUILD_DIR}"/temp/"${ABI}"/include/* "${OUTPUT_HEADERS}"
 }
 
 function buildFfmpeg() {
@@ -348,17 +230,125 @@ function buildFfmpeg() {
   for decoder in $ENABLED_DECODERS; do
     COMMON_OPTIONS+=" --enable-decoder=${decoder}"
   done
-  local new_pkg_config_path=""
-  for ABI in $ABIS; do
-    local temp="$ABI/lib/pkgconfig"
-    new_pkg_config_path=$MEDTLS_OUT_DIR/$temp:$VPX_OUT_DIR/$temp:$AOM_OUT_DIR/$temp:$new_pkg_config_path
-  done
-  new_pkg_config_path=$(echo "$new_pkg_config_path" | sed 's/:$//')
-  # 更新 PKG_CONFIG_PATH 变量
-  export PKG_CONFIG_PATH="$new_pkg_config_path:$PKG_CONFIG_PATH"
+  # local new_pkg_config_path=""
+  # for ABI in $ABIS; do
+  #   local temp="$ABI/lib/pkgconfig"
+  #   new_pkg_config_path=$MEDTLS_OUT_DIR/$temp:$VPX_OUT_DIR/$temp:$AOM_OUT_DIR/$temp:$new_pkg_config_path
+  # done
+  # new_pkg_config_path=$(echo "$new_pkg_config_path" | sed 's/:$//')
+  # # 更新 PKG_CONFIG_PATH 变量
+  # export PKG_CONFIG_PATH="$new_pkg_config_path:$PKG_CONFIG_PATH"
   # Build FFmpeg for each architecture and platform
   for ABI in $ABIS; do
-    (buildFf $ABI "$COMMON_OPTIONS") &
+  {
+    local TOOLCHAIN
+    local CPU
+    local ARCH
+    local EXTRA_BUILD_CONFIGURATION_FLAGS=""
+    # Set up environment variables
+    case $ABI in
+    armeabi-v7a)
+      TOOLCHAIN=armv7a-linux-androideabi21-
+      CPU=armv7-a
+      ARCH=arm
+      EXTRA_BUILD_CONFIGURATION_FLAGS="--enable-neon"
+      ;;
+    arm64-v8a)
+      TOOLCHAIN=aarch64-linux-android21-
+      CPU=armv8-a
+      ARCH=aarch64
+      EXTRA_BUILD_CONFIGURATION_FLAGS="--enable-neon"
+      ;;
+    x86)
+      TOOLCHAIN=i686-linux-android21-
+      CPU=i686
+      ARCH=i686
+      EXTRA_BUILD_CONFIGURATION_FLAGS=--disable-asm
+      ;;
+    x86_64)
+      TOOLCHAIN=x86_64-linux-android21-
+      CPU=x86-64-v2
+      ARCH=x86_64
+      ;;
+    *)
+      echo "Unsupported architecture: $ABI"
+      exit 1
+      ;;
+    esac
+
+    local temp="$ABI/lib/pkgconfig"
+    local new_pkg_config_path=$MEDTLS_OUT_DIR/$temp:$VPX_OUT_DIR/$temp:$AOM_OUT_DIR/$temp:$PKG_CONFIG_PATH
+    new_pkg_config_path=$(echo "$new_pkg_config_path" | sed 's/:$//')
+    # 更新 PKG_CONFIG_PATH 变量
+    # export PKG_CONFIG_PATH="$new_pkg_config_path:$PKG_CONFIG_PATH"
+    local DEP_CFLAGS=""
+    local DEP_LD_FLAGS=""  
+    # Referencing dependencies without pkgconfig
+    # local DEP_CFLAGS="-I$AOM_OUT_DIR/$ABI/include -I$VPX_OUT_DIR/$ABI/include -I$MEDTLS_OUT_DIR/$ABI/include"
+    # local DEP_LD_FLAGS="-L$AOM_OUT_DIR/$ABI/lib -L$VPX_OUT_DIR/$ABI/lib -L$MEDTLS_OUT_DIR/$ABI/lib" 
+
+    local CMAKE_BUILD_DIR=${SOURCES_DIR}/temp_ff/${FFMPEG_VERSION}/ffmpeg_build_${ABI}
+    if [[ ! -d "$CMAKE_BUILD_DIR" ]]; then
+      mkdir -p $CMAKE_BUILD_DIR
+      cp -r ${FFMPEG_DIR}/* $CMAKE_BUILD_DIR
+    fi
+    cd ${CMAKE_BUILD_DIR}
+    # Configure FFmpeg build
+    env PKG_CONFIG_PATH=$new_pkg_config_path \
+    ./configure \
+      --prefix=$BUILD_DIR/temp/$ABI \
+      --enable-cross-compile \
+      --arch=$ARCH \
+      --cpu=$CPU \
+      --cross-prefix="${TOOLCHAIN_PREFIX}/bin/$TOOLCHAIN" \
+      --nm="${TOOLCHAIN_PREFIX}/bin/llvm-nm" \
+      --ar="${TOOLCHAIN_PREFIX}/bin/llvm-ar" \
+      --ranlib="${TOOLCHAIN_PREFIX}/bin/llvm-ranlib" \
+      --strip="${TOOLCHAIN_PREFIX}/bin/llvm-strip" \
+      --extra-cflags="-O3 -fPIC $DEP_CFLAGS" \
+      --extra-ldflags="$DEP_LD_FLAGS" \
+      --pkg-config="$(which pkg-config)" \
+      --pkg-config-flags="--static" \
+      --target-os=android \
+      --enable-shared \
+      --disable-static \
+      --disable-doc \
+      --disable-programs \
+      --disable-everything \
+      --disable-vulkan \
+      --disable-avdevice \
+      --disable-avformat \
+      --disable-postproc \
+      --disable-avfilter \
+      --disable-symver \
+      --enable-parsers \
+      --enable-demuxers \
+      --enable-swresample \
+      --enable-avformat \
+      --enable-libvpx \
+      --enable-libaom \
+      --enable-protocol=file,http,https,mmsh,mmst,pipe,rtmp,rtmps,rtmpt,rtmpts,rtp,tls \
+      --enable-version3 \
+      --enable-mbedtls \
+      --extra-ldexeflags=-pie \
+      --disable-debug \
+      ${EXTRA_BUILD_CONFIGURATION_FLAGS} \
+      $COMMON_OPTIONS
+
+    # Build FFmpeg
+    echo "Building FFmpeg for $ARCH..."
+    make clean
+    make -j$JOBS
+    make install
+
+    local OUTPUT_LIB=${OUTPUT_DIR}/lib/${ABI}
+    mkdir -p "${OUTPUT_LIB}"
+    cp "${BUILD_DIR}"/temp/"${ABI}"/lib/*.so "${OUTPUT_LIB}"
+
+    local OUTPUT_HEADERS=${OUTPUT_DIR}/include/${ABI}
+    mkdir -p "${OUTPUT_HEADERS}"
+    cp -r "${BUILD_DIR}"/temp/"${ABI}"/include/* "${OUTPUT_HEADERS}"
+  } &
   done
   wait
   popd
