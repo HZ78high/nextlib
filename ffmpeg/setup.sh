@@ -189,9 +189,31 @@ function buildMbedTLS() {
 
 function buildLibAom() {
   local ABI
+  local ABIS="${1:-$ANDROID_ABIS}"
   pushd $AOM_DIR
-  for ABI in $ANDROID_ABIS; do
+  for ABI in $ABIS; do
   {
+    local ARCH
+    # Set up environment variables
+    case $ABI in
+    armeabi-v7a)
+      ARCH=arm
+      ;;
+    arm64-v8a)
+      ARCH=aarch64
+      ;;
+    x86)
+      ARCH=x86
+      ;;
+    x86_64)
+      ARCH=x86_64
+      ;;
+    *)
+      echo "Unsupported architecture: $ABI"
+      exit 1
+      ;;
+    esac
+
     local CMAKE_BUILD_DIR=$AOM_DIR/aom_build_${ABI}
     rm -rf ${CMAKE_BUILD_DIR}
     mkdir -p ${CMAKE_BUILD_DIR}
@@ -201,6 +223,7 @@ function buildLibAom() {
       -DCMAKE_BUILD_TYPE=Release \
       -DANDROID_PLATFORM=${ANDROID_PLATFORM} \
       -DANDROID_ABI=$ABI \
+      -DAOM_TARGET_CPU=$ARCH \
       -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake \
       -DCMAKE_INSTALL_PREFIX=${AOM_OUT_DIR}/$ABI \
       -DCONFIG_AV1_ENCODER=0 \
@@ -295,16 +318,19 @@ function buildFfmpeg() {
     cd ${CMAKE_BUILD_DIR}
     # Configure FFmpeg build
     env PKG_CONFIG_PATH=$new_pkg_config_path \
+        cc="${TOOLCHAIN_PREFIX}/bin/${TOOLCHAIN}clang" \
+        cxx="${TOOLCHAIN_PREFIX}/bin/${TOOLCHAIN}clang++" \
+        ar=${TOOLCHAIN_PREFIX}/bin/llvm-ar \
+        strip=${TOOLCHAIN_PREFIX}/bin/llvm-strip \
+        nm=${TOOLCHAIN_PREFIX}/bin/llvm-nm \
+        ranlib="${TOOLCHAIN_PREFIX}/bin/llvm-ranlib" \
     ./configure \
       --prefix=$BUILD_DIR/temp/$ABI \
       --enable-cross-compile \
       --arch=$ARCH \
       --cpu=$CPU \
-      --cross-prefix="${TOOLCHAIN_PREFIX}/bin/$TOOLCHAIN" \
-      --nm="${TOOLCHAIN_PREFIX}/bin/llvm-nm" \
-      --ar="${TOOLCHAIN_PREFIX}/bin/llvm-ar" \
-      --ranlib="${TOOLCHAIN_PREFIX}/bin/llvm-ranlib" \
-      --strip="${TOOLCHAIN_PREFIX}/bin/llvm-strip" \
+      --sysroot="${TOOLCHAIN_PREFIX}/sysroot" \
+      --sysinclude="${TOOLCHAIN_PREFIX}/sysroot/usr/include" \
       --extra-cflags="-O3 -fPIC $DEP_CFLAGS" \
       --extra-ldflags="$DEP_LD_FLAGS" \
       --pkg-config="$(which pkg-config)" \
@@ -374,11 +400,6 @@ if [[ ! -d "$OUTPUT_DIR" ]]; then
   if [[ ! -d "$FFMPEG_DIR" ]]; then
     downloadFfmpeg
   fi
-
-  # if [[ ! -d "$FFMPEG_DIR_OLD" ]]; then
-  #   downloadFfmpegX86
-  # fi
-
   
   #Building library
   if [[ ! -d "$MEDTLS_OUT_DIR" ]]; then

@@ -171,8 +171,8 @@ JniContext *createVideoContext(JNIEnv *env,
     jclass outputBufferClass = env->FindClass("androidx/media3/decoder/VideoDecoderOutputBuffer");
     if (!outputBufferClass) {
         LOGE("Failed to find VideoDecoderOutputBuffer class.");
-        delete jniContext;
         releaseContext(codecContext);
+        delete jniContext;
         return nullptr;
     }
 
@@ -186,8 +186,8 @@ JniContext *createVideoContext(JNIEnv *env,
     if (!jniContext->data_field || !jniContext->yuvStrides_field || !jniContext->yuvPlanes_field ||
         !jniContext->init_for_yuv_frame_method || !jniContext->init_method) {
         LOGE("Failed to get field or method IDs.");
-        delete jniContext;
         releaseContext(codecContext);
+        delete jniContext;
         return nullptr;
     }
 
