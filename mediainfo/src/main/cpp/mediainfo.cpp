@@ -86,13 +86,23 @@ void onVideoStreamFound(JNIEnv *env, jobject jMediaInfoBuilder, AVFormatContext 
         rotation %= 360;
         if (rotation < 0) rotation += 360;
     }
-    uint8_t *displaymatrix = av_stream_get_side_data(stream,
-                                                     AV_PKT_DATA_DISPLAYMATRIX,
-                                                     nullptr);
-    if (displaymatrix) {
-        double theta = av_display_rotation_get((int32_t *) displaymatrix);
-        rotation = (int) (-theta) % 360;
-        if (rotation < 0) rotation += 360;
+//    uint8_t *displaymatrix = av_stream_get_side_data(stream,
+//                                                     AV_PKT_DATA_DISPLAYMATRIX,
+//                                                     nullptr);
+//    if (displaymatrix) {
+//        double theta = av_display_rotation_get((int32_t *) displaymatrix);
+//        rotation = (int) (-theta) % 360;
+//        if (rotation < 0) rotation += 360;
+//    }
+    for (int i = 0; i < parameters->nb_coded_side_data; i++) {
+        if (parameters->coded_side_data[i].type == AV_PKT_DATA_DISPLAYMATRIX &&
+            parameters->coded_side_data[i].size >= sizeof(int32_t) * 9) {
+            const auto *matrix = (const int32_t *) parameters->coded_side_data[i].data;
+            double theta = av_display_rotation_get(matrix);
+            rotation = static_cast<int>(-theta) % 360;
+            if (rotation < 0) rotation += 360;
+            break;
+        }
     }
 
     utils_call_instance_method_void(env,
@@ -222,6 +232,8 @@ void media_info_build(JNIEnv *env, jobject jMediaInfoBuilder, const char *uri) {
                 break;
             case AVMEDIA_TYPE_SUBTITLE:
                 onSubtitleStreamFound(env, jMediaInfoBuilder, avFormatContext, pos);
+                break;
+            default:
                 break;
         }
     }

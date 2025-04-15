@@ -4,6 +4,7 @@ import static androidx.media3.exoplayer.audio.AudioSink.SINK_FORMAT_SUPPORTED_DI
 import static androidx.media3.exoplayer.audio.AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING;
 import static androidx.media3.exoplayer.audio.AudioSink.SINK_FORMAT_UNSUPPORTED;
 
+import android.content.Context;
 import android.os.Handler;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
@@ -32,8 +33,8 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
   /** The default input buffer size. */
   private static final int DEFAULT_INPUT_BUFFER_SIZE = 960 * 6;
 
-  public FfmpegAudioRenderer() {
-    this(/* eventHandler= */ null, /* eventListener= */ null);
+  public FfmpegAudioRenderer(Context context) {
+    this(/* eventHandler= */ null, /* eventListener= */ null, /* context= */ context);
   }
 
   /**
@@ -47,11 +48,12 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
   public FfmpegAudioRenderer(
       @Nullable Handler eventHandler,
       @Nullable AudioRendererEventListener eventListener,
+      Context context,
       AudioProcessor... audioProcessors) {
     this(
         eventHandler,
         eventListener,
-        new DefaultAudioSink.Builder().setAudioProcessors(audioProcessors).build());
+        new DefaultAudioSink.Builder(context).setAudioProcessors(audioProcessors).build());
   }
 
   /**
