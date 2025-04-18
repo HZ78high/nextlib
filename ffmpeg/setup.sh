@@ -2,10 +2,10 @@
 
 # Versions
 VPX_VERSION=1.15.1
-AOM_VERSION=3.12.0
+AOM_VERSION=3.12.1
 MBEDTLS_VERSION=3.6.3
 FFMPEG_VERSION=7.1.1
-ANDROID_NDK_HOME=/home/hyz/Android-dv/nkd/android-ndk-r28
+export ANDROID_NDK_HOME=/home/hyz/Android-dv/nkd/android-ndk-r28
 CMAKE_HOME=/mnt/c/_Linux/cmake-4.0.0-linux-x86_64
 # Directories
 BASE_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -174,7 +174,7 @@ function buildMbedTLS() {
         -DCMAKE_BUILD_TYPE=Release \
         -DANDROID_PLATFORM=${ANDROID_PLATFORM} \
         -DANDROID_ABI=$ABI \
-        -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake \
+        -DCMAKE_TOOLCHAIN_FILE=${BASE_DIR}/Cmake/mbedtls/android.cmake \
         -DCMAKE_INSTALL_PREFIX=$MEDTLS_OUT_DIR/$ABI \
         -DENABLE_TESTING=0
 
@@ -193,27 +193,6 @@ function buildLibAom() {
   pushd $AOM_DIR
   for ABI in $ABIS; do
   {
-    local ARCH
-    # Set up environment variables
-    case $ABI in
-    armeabi-v7a)
-      ARCH=arm
-      ;;
-    arm64-v8a)
-      ARCH=aarch64
-      ;;
-    x86)
-      ARCH=x86
-      ;;
-    x86_64)
-      ARCH=x86_64
-      ;;
-    *)
-      echo "Unsupported architecture: $ABI"
-      exit 1
-      ;;
-    esac
-
     local CMAKE_BUILD_DIR=$AOM_DIR/aom_build_${ABI}
     rm -rf ${CMAKE_BUILD_DIR}
     mkdir -p ${CMAKE_BUILD_DIR}
@@ -223,8 +202,7 @@ function buildLibAom() {
       -DCMAKE_BUILD_TYPE=Release \
       -DANDROID_PLATFORM=${ANDROID_PLATFORM} \
       -DANDROID_ABI=$ABI \
-      -DAOM_TARGET_CPU=$ARCH \
-      -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake \
+      -DCMAKE_TOOLCHAIN_FILE=${BASE_DIR}/Cmake/libaom/android.cmake \
       -DCMAKE_INSTALL_PREFIX=${AOM_OUT_DIR}/$ABI \
       -DCONFIG_AV1_ENCODER=0 \
       -DENABLE_DOCS=0 \
@@ -232,7 +210,8 @@ function buildLibAom() {
       -DCONFIG_RUNTIME_CPU_DETECT=0 \
       -DCONFIG_WEBM_IO=0 \
       -DENABLE_EXAMPLES=0 \
-      -DCONFIG_REALTIME_ONLY=1
+      -DCONFIG_REALTIME_ONLY=1 \
+      -DENABLE_TOOLS=0
 
     make -j$JOBS
     make install
@@ -243,6 +222,7 @@ function buildLibAom() {
 }
 
 function buildFfmpeg() {
+  rm -rf ${BUILD_DIR}/temp
   local ABI
   # F_DIR="${2:-$FFMPEG_DIR}"
   local ABIS="${1:-$ANDROID_ABIS}"
@@ -292,6 +272,7 @@ function buildFfmpeg() {
       TOOLCHAIN=x86_64-linux-android21-
       CPU=x86-64-v2
       ARCH=x86_64
+      EXTRA_BUILD_CONFIGURATION_FLAGS="--x86asmexe=${TOOLCHAIN_PREFIX}/bin/yasm"
       ;;
     *)
       echo "Unsupported architecture: $ABI"
