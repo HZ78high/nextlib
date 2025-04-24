@@ -2,6 +2,7 @@ package io.github.anilbeesetti.nextlib.media3ext.ffdecoder
 
 import android.content.Context
 import android.os.Handler
+import androidx.media3.common.C
 import androidx.media3.common.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -76,6 +77,8 @@ open class NextRenderersFactory(context: Context) : DefaultRenderersFactory(cont
                 .setEventHandler(eventHandler)
                 .setEventListener(eventListener)
                 .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
+                .experimentalSetLateThresholdToDropDecoderInputUs(C.TIME_UNSET)
+                .experimentalSetParseAv1SampleDependencies(true)
                 .build()
         out.add(videoRenderer)
 

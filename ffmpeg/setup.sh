@@ -187,6 +187,7 @@ function buildMbedTLS() {
 }
 
 
+# shellcheck disable=SC2120
 function buildLibAom() {
   local ABI
   local ABIS="${1:-$ANDROID_ABIS}"
@@ -221,6 +222,7 @@ function buildLibAom() {
   popd
 }
 
+# shellcheck disable=SC2120
 function buildFfmpeg() {
   rm -rf ${BUILD_DIR}/temp
   local ABI

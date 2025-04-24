@@ -53,6 +53,9 @@ android {
 
 // Gradle task to setup ffmpeg
 val ffmpegSetup by tasks.registering(Exec::class) {
+    onlyIf{
+        !file("../ffmpeg/output").exists()
+    }
     workingDir = file("../ffmpeg")
     // export ndk path and run bash script
 //    val winToWslPath: (String) -> String = { it.replace("C:\\", "/mnt/c/").replace("\\", "/") }
