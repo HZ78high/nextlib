@@ -92,6 +92,11 @@ function downloadFfmpeg() {
   [ -e "$FFMPEG_FILE" ] || { echo "$FFMPEG_FILE does not exist. Exiting..."; exit 1; }
   tar -zxf "$FFMPEG_FILE"
   rm "$FFMPEG_FILE"
+  pushd "ffmpeg-$FFMPEG_VERSION"
+  echo "Modifying configure file..."
+  sed -i 's/&& require_pkg_config libaom/#&& require_pkg_config libaom/g' configure
+  echo "Configuration file modified successfully."
+  popd
   popd
 }
 
@@ -295,8 +300,8 @@ function buildFfmpeg() {
     local DEP_CFLAGS=""
     local DEP_LD_FLAGS=""  
     # Referencing dependencies without pkgconfig
-    # local DEP_CFLAGS="-I$AOM_OUT_DIR/$ABI/include -I$VPX_OUT_DIR/$ABI/include -I$MEDTLS_OUT_DIR/$ABI/include"
-    # local DEP_LD_FLAGS="-L$AOM_OUT_DIR/$ABI/lib -L$VPX_OUT_DIR/$ABI/lib -L$MEDTLS_OUT_DIR/$ABI/lib" 
+    local DEP_CFLAGS="-I$AOM_OUT_DIR/$ABI/include -I$VPX_OUT_DIR/$ABI/include -I$MEDTLS_OUT_DIR/$ABI/include"
+    local DEP_LD_FLAGS="-L$AOM_OUT_DIR/$ABI/lib -L$VPX_OUT_DIR/$ABI/lib -L$MEDTLS_OUT_DIR/$ABI/lib" 
 
     local CMAKE_BUILD_DIR="${SOURCES_DIR}/temp_ff/${FFMPEG_VERSION}/ffmpeg_build_${ABI}"
     if [[ ! -d "$CMAKE_BUILD_DIR" ]]; then
