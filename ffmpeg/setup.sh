@@ -5,8 +5,14 @@ VPX_VERSION="1.15.1"
 AOM_VERSION="3.12.1"
 MBEDTLS_VERSION="3.6.3"
 FFMPEG_VERSION="7.1.1"
-export ANDROID_NDK_HOME="/home/hyz/Android-dv/nkd/android-ndk-r28"
-CMAKE_HOME="/mnt/c/_Linux/cmake-4.0.0-linux-x86_64"
+export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-/home/hyz/Android-dv/nkd/android-ndk-r28}"
+CMAKE_HOME="${CMAKE_HOME_PATH:-/mnt/c/_Linux/cmake-4.0.0-linux-x86_64}"
+#if [ -n "$ANDROID_SDK_HOME" ]; then
+#  CMAKE_HOME="${ANDROID_SDK_HOME}/cmake/3.31.6"
+#else
+#  CMAKE_HOME="/mnt/c/_Linux/cmake-4.0.0-linux-x86_64"
+#fi
+#CMAKE_HOME="/mnt/c/_Linux/cmake-4.0.0-linux-x86_64"
 # Directories
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$BASE_DIR"/build

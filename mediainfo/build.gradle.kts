@@ -11,6 +11,8 @@ android {
 
     compileSdk = 35
 
+    ndkVersion = libs.versions.androidNdk.get()
+
     defaultConfig {
 
         minSdk = 21
@@ -24,8 +26,6 @@ android {
         ndk {
             abiFilters += listOf("x86", "x86_64", "armeabi-v7a", "arm64-v8a")
         }
-
-        ndkVersion = "28.0.13004108"
     }
 
     compileOptions {
@@ -41,7 +41,7 @@ android {
     externalNativeBuild {
         cmake {
             path("src/main/cpp/CMakeLists.txt")
-            version = "3.31.6"
+            version = libs.versions.cmake.get()
         }
     }
     publishing {
@@ -58,6 +58,14 @@ val ffmpegSetup by tasks.registering(Exec::class) {
     }
     workingDir = file("../ffmpeg")
     // export ndk path and run bash script
+    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+    if (isWindows) {
+        println("当前系统是 Windows")
+    } else {
+        println("当前系统不是 Windows")
+        environment("CMAKE_HOME_PATH", android.sdkDirectory.absolutePath + "/cmake/${libs.versions.cmake.get()}")
+        environment("ANDROID_NDK_HOME",android.ndkDirectory.absolutePath)
+    }
 //    val winToWslPath: (String) -> String = { it.replace("C:\\", "/mnt/c/").replace("\\", "/") }
 //    environment("ANDROID_SDK_HOME", winToWslPath(android.sdkDirectory.absolutePath))
 //    environment("ANDROID_NDK_HOME", winToWslPath(android.ndkDirectory.absolutePath))
