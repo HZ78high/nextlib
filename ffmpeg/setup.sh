@@ -94,7 +94,8 @@ function downloadFfmpeg() {
   rm "$FFMPEG_FILE"
   pushd "ffmpeg-$FFMPEG_VERSION"
   echo "Modifying configure file..."
-  sed -i 's/&& require_pkg_config libaom/#&& require_pkg_config libaom/g' configure
+  # sed -i 's/&& require_pkg_config libaom/#&& require_pkg_config libaom/g' configure
+  sed -i 's|require_pkg_config libaom "aom >= 2.0.0" aom/aom_codec.h aom_codec_version|check_lib libaom aom/aom_codec.h aom_codec_version -laom|g' configure
   echo "Configuration file modified successfully."
   popd
   popd
