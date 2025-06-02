@@ -399,8 +399,8 @@ function buildFfmpeg() {
     local DEP_LD_FLAGS=""  
     # Referencing dependencies without pkgconfig
     # local DEP_CFLAGS="-I$AOM_OUT_DIR/$ABI/include -I$VPX_OUT_DIR/$ABI/include -I$MEDTLS_OUT_DIR/$ABI/include"
-    # local DEP_LD_FLAGS="-L$AOM_OUT_DIR/$ABI/lib -L$VPX_OUT_DIR/$ABI/lib -L$MEDTLS_OUT_DIR/$ABI/lib" 
-
+    # local DEP_LD_FLAGS="-L$AOM_OUT_DIR/$ABI/lib -L$VPX_OUT_DIR/$ABI/lib -L$MEDTLS_OUT_DIR/$ABI/lib"
+    DEP_LD_FLAGS="-Wl,-z,max-page-size=16384 $DEP_LD_FLAGS"
     local CMAKE_BUILD_DIR="${SOURCES_DIR}/temp_ff/${FFMPEG_VERSION}/ffmpeg_build_${ABI}"
     if [[ ! -d "$CMAKE_BUILD_DIR" ]]; then
       mkdir -p "$CMAKE_BUILD_DIR"
