@@ -27,7 +27,7 @@ extern "C" {
 #define ALIGN(x, a) (((x) + ((a) - 1)) & ~((a) - 1))
 
 static const int VIDEO_DECODER_SUCCESS = 0;
-static const int VIDEO_DECODER_ERROR_INVALID_DATA = -1;
+static const int VIDEO_DECODER_NEED_MORE_FRAME = -1;
 static const int VIDEO_DECODER_ERROR_OTHER = -2;
 static const int VIDEO_DECODER_ERROR_READ_FRAME = -3;
 
@@ -172,14 +172,14 @@ JniContext *createVideoContext(JNIEnv *env,
 
     // Populate JNI References.
     jclass outputBufferClass = env->FindClass("androidx/media3/decoder/VideoDecoderOutputBuffer");
-    jclass SimpleDecoderClass = env->FindClass("androidx/media3/decoder/SimpleDecoder");
+    jclass FfmpegVideoDecoderClass = env->FindClass("io/github/anilbeesetti/nextlib/media3ext/ffdecoder/FfmpegVideoDecoder");
     if (!outputBufferClass) {
         LOGE("Failed to find VideoDecoderOutputBuffer class.");
         releaseContext(codecContext);
         delete jniContext;
         return nullptr;
     }
-    if(!SimpleDecoderClass){
+    if(!FfmpegVideoDecoderClass){
         LOGE("Failed to find SimpleDecoder class.");
         releaseContext(codecContext);
         delete jniContext;
@@ -191,7 +191,7 @@ JniContext *createVideoContext(JNIEnv *env,
     jniContext->yuvPlanes_field = env->GetFieldID(outputBufferClass, "yuvPlanes", "[Ljava/nio/ByteBuffer;");
     jniContext->init_for_yuv_frame_method = env->GetMethodID(outputBufferClass, "initForYuvFrame", "(IIIII)Z");
     jniContext->init_method = env->GetMethodID(outputBufferClass, "init", "(JILjava/nio/ByteBuffer;)V");
-    jniContext->isAtLeastOutputStartTimeUs_method = env->GetMethodID(SimpleDecoderClass,"isAtLeastOutputStartTimeUs","(J)Z");
+    jniContext->isAtLeastOutputStartTimeUs_method = env->GetMethodID(FfmpegVideoDecoderClass,"isAtLeastOutputStartTimeUs","(J)Z");
 
     // 检查所有JNI引用是否成功获取
     if (!jniContext->data_field || !jniContext->yuvStrides_field || !jniContext->yuvPlanes_field ||
@@ -392,7 +392,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         logError("avcodec_send_packet-video", result);
         if (result == AVERROR_INVALIDDATA) {
             // need more data
-            return VIDEO_DECODER_ERROR_INVALID_DATA;
+            return VIDEO_DECODER_NEED_MORE_FRAME;
         } else if (result == AVERROR(EAGAIN)) {
             // need read frame
             return VIDEO_DECODER_ERROR_READ_FRAME;
@@ -426,7 +426,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         // This is not an error. The input data was decode-only or no displayable
         // frames are available.
         av_frame_free(&frame);
-        return VIDEO_DECODER_ERROR_INVALID_DATA;
+        return VIDEO_DECODER_NEED_MORE_FRAME;
     }
     if (result) {
         av_frame_free(&frame);
@@ -481,17 +481,22 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         jlong input_time,
         jint output_mode,
         jobject output_buffer,
-        jboolean decode_only) {
+        jboolean decodeOnly,
+        jboolean readOnly) {
+    LOGE("Calling Native decodeOnly %d",decodeOnly);
     auto *const jniContext = reinterpret_cast<JniContext *>(jContext);
     AVCodecContext *avContext = jniContext->codecContext;
     AVRational time_base = avContext->time_base;
     // 1. Prepare packet if input exists
     AVPacket *packet = nullptr;
+    if(readOnly){
+        goto read;
+    }
     if (encoded_data != nullptr && length > 0) {
         auto *inputBuffer = (uint8_t *) env->GetDirectBufferAddress(encoded_data);
         if (!inputBuffer) {
             logError("GetDirectBufferAddress failed", -1);
-            return VIDEO_DECODER_ERROR_INVALID_DATA;
+            return VIDEO_DECODER_NEED_MORE_FRAME;
         }
 
         packet = av_packet_alloc();
@@ -504,9 +509,9 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         packet->pts = input_time;
     } else{
         logError("Input data is null or zero", -1);
-        return VIDEO_DECODER_ERROR_INVALID_DATA;
+        return VIDEO_DECODER_NEED_MORE_FRAME;
     }
-
+read:
     // Helper lambda: try receive frames until no more
     auto receive_all_frames = [&]() -> int {
         int ret;
@@ -516,31 +521,31 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
             return VIDEO_DECODER_ERROR_OTHER;
         }
         ret = avcodec_receive_frame(avContext, frame);
+        auto frameTime = frame->pts;
+        auto shouldKeep = env->CallBooleanMethod(thiz, jniContext->isAtLeastOutputStartTimeUs_method,frameTime);
+        LOGI("Input time %lld Frame Time %lld shouldKeep:%d",input_time,frameTime,shouldKeep);
         if (ret == AVERROR(EAGAIN)) {
             av_frame_free(&frame);
             LOGI("Drop Frame AVERROR(EAGAIN)");
-            return VIDEO_DECODER_ERROR_INVALID_DATA;
+            return VIDEO_DECODER_NEED_MORE_FRAME;
         }
-        if(ret == AVERROR_EOF){
+        if(ret == AVERROR_EOF) {
             av_frame_free(&frame);
             LOGI("Drop Frame AVERROR_EOF)");
-            return VIDEO_DECODER_ERROR_INVALID_DATA;
+            return VIDEO_DECODER_NEED_MORE_FRAME;
         }
         if (ret){
-            logError("receive_frame failed", ret);
             av_frame_free(&frame);
-            return VIDEO_DECODER_ERROR_OTHER;
+            LOGE("Error in Read Frame");
+            return ret;
         }
-        auto frameTime = frame->pts;
-        LOGI("Input time %lld Frame Time %lld",input_time,frameTime);
-        if (!env->CallBooleanMethod(thiz, jniContext->isAtLeastOutputStartTimeUs_method,frameTime)) {
+        if (!shouldKeep || decodeOnly) {
             av_frame_free(&frame);
             LOGI("Drop Frame Time");
-            return VIDEO_DECODER_ERROR_INVALID_DATA;  // skip output if decode_only
+            return 1;  // skip output if decode_only
         }
-
         // 填充Java output_buffer数据
-        env->CallVoidMethod(output_buffer, jniContext->init_method, frame->pts, output_mode, nullptr);
+        env->CallVoidMethod(output_buffer, jniContext->init_method, frameTime, output_mode, nullptr);
         jboolean init_result = env->CallBooleanMethod(
                 output_buffer, jniContext->init_for_yuv_frame_method,
                 frame->width, frame->height,
@@ -567,65 +572,38 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         return 0;
         
     };
-
+    if (readOnly) return receive_all_frames();
     // 2. 发送包，如果失败是EAGAIN，先拉帧释放缓冲再重试
 
     int result;
     // 缓冲区满，先拉帧释放
     result = avcodec_send_packet(avContext, packet);
-    if(result == AVERROR(EAGAIN)){
-        AVFrame *frame = av_frame_alloc();
-        int count = 0;
-        do{
-            if (count > 0) LOGE("Strat Discard Frame %d",count);
-            int ret = avcodec_receive_frame(avContext, frame);
-            if (ret){
-                LOGI("flush buffer When Recieve error");
-                avcodec_flush_buffers(avContext);
-                result = avcodec_send_packet(avContext, packet);
-                if(result){
-                    av_packet_free(&packet);
-                    if (result == AVERROR_INVALIDDATA) {
-                        // need more data
-                        logError("avcodec_send_packet-more data in flush", result);
-                        return VIDEO_DECODER_ERROR_INVALID_DATA;
-                    } else {
-                        logError("avcodec_send_packet -error", result);
-                        return VIDEO_DECODER_ERROR_OTHER;
-                    }
-                }
-                break;
-            }
-            av_frame_unref(frame);
-            result = avcodec_send_packet(avContext, packet);
-            count++;
-        } while (result == AVERROR(EAGAIN));
-        av_frame_free(&frame);
-        int rec = receive_all_frames();
-        av_packet_free(&packet);
-        LOGI("AVERROR(EAGAIN) rec: %d result: %d",rec,result);
-        return rec;
-    }
     if(result) {
         av_packet_free(&packet);
-        if (result == AVERROR_INVALIDDATA) {
-            // need more data
-            logError("avcodec_send_packet-more data", result);
-            return VIDEO_DECODER_ERROR_INVALID_DATA;
-        } else {
+        if(result == AVERROR(EAGAIN)){
+            logError("avcodec_send_packet -error -need reed frame", result);
+            return VIDEO_DECODER_ERROR_READ_FRAME;
+        }else {
             logError("avcodec_send_packet -error", result);
             return VIDEO_DECODER_ERROR_OTHER;
         }
     }
-    int rec_ret = receive_all_frames();
-    av_packet_free(&packet);
-    if (rec_ret == VIDEO_DECODER_ERROR_INVALID_DATA){
-        LOGI("Drop Frame");
-        return VIDEO_DECODER_ERROR_INVALID_DATA;
-    }
-    if (rec_ret) {
-        logError("avcodec_send_packet-video-readframe", rec_ret);
-        return rec_ret;
-    }
+    int rec_ret;
+    do {
+        rec_ret = receive_all_frames();
+        av_packet_free(&packet);
+        if (rec_ret == 1) {
+            LOGI("Drop Frame");
+            continue;
+        }
+        if (rec_ret == -1) {
+            LOGI("need more frame");
+            return -1;
+        }
+        if (rec_ret) {
+            logError("avcodec_send_packet-video-readframe", rec_ret);
+            return VIDEO_DECODER_ERROR_OTHER;
+        }
+    } while (rec_ret);
     return 0;
 }
