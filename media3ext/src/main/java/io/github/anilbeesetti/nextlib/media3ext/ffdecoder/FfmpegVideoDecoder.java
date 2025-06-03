@@ -138,22 +138,31 @@ final class FfmpegVideoDecoder extends
         ByteBuffer inputData = Util.castNonNull(inputBuffer.data);
         int inputSize = inputData.limit();
         // enqueue origin data
-        int sendPacketResult = ffmpegSendPacket(nativeContext, inputData, inputSize, inputBuffer.timeUs);
-        if (sendPacketResult == VIDEO_DECODER_ERROR_INVALID_DATA) {
-            outputBuffer.shouldBeSkipped = true;
-            return null;
-        } else if (sendPacketResult == VIDEO_DECODER_ERROR_READ_FRAME) {
-            // need read frame
-            Log.d(TAG, "VIDEO_DECODER_ERROR_READ_FRAME: " + "timeUs=" + inputBuffer.timeUs);
-        } else if (sendPacketResult == VIDEO_DECODER_ERROR_OTHER) {
-            return new FfmpegDecoderException("ffmpegDecode error: (see logcat)");
-        }
+//        int sendPacketResult = ffmpegSendPacket(nativeContext, inputData, inputSize, inputBuffer.timeUs);
+//        if (sendPacketResult == VIDEO_DECODER_ERROR_INVALID_DATA) {
+//            outputBuffer.shouldBeSkipped = true;
+//            return null;
+//        } else if (sendPacketResult == VIDEO_DECODER_ERROR_READ_FRAME) {
+//            // need read frame
+//            Log.d(TAG, "VIDEO_DECODER_ERROR_READ_FRAME: " + "timeUs=" + inputBuffer.timeUs);
+//        } else if (sendPacketResult == VIDEO_DECODER_ERROR_OTHER) {
+//            return new FfmpegDecoderException("ffmpegDecode error: (see logcat)");
+//        }
 
         // receive frame
         boolean decodeOnly = !isAtLeastOutputStartTimeUs(inputBuffer.timeUs);
         // We need to dequeue the decoded frame from the decoder even when the input data is
         // decode-only.
-        int getFrameResult = ffmpegReceiveFrame(nativeContext, outputMode, outputBuffer, decodeOnly);
+//        int getFrameResult = ffmpegReceiveFrame(nativeContext, outputMode, outputBuffer, decodeOnly);
+        int getFrameResult = ffmpegDecode(
+                nativeContext,
+                inputBuffer.data,
+                inputSize,
+                inputBuffer.timeUs,
+                outputMode,
+                outputBuffer,
+                decodeOnly
+        );
         if (getFrameResult == VIDEO_DECODER_ERROR_OTHER) {
             return new FfmpegDecoderException("ffmpegDecode error: (see logcat)");
         }
@@ -162,7 +171,7 @@ final class FfmpegVideoDecoder extends
             outputBuffer.shouldBeSkipped = true;
         }
 
-        if (!decodeOnly) {
+        if (getFrameResult == 0) {
             outputBuffer.format = inputBuffer.format;
         }
 
@@ -231,5 +240,6 @@ final class FfmpegVideoDecoder extends
      */
     private native int ffmpegReceiveFrame(
             long context, int outputMode, VideoDecoderOutputBuffer outputBuffer, boolean decodeOnly);
+    private native int ffmpegDecode(long context,ByteBuffer encodedData,int length,long inputTime,int outputMode, VideoDecoderOutputBuffer outputBuffer, boolean decodeOnly);
 
 }
