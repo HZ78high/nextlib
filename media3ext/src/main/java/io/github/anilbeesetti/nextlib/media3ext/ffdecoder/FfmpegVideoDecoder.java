@@ -36,6 +36,7 @@ final class FfmpegVideoDecoder
     private static final int VIDEO_DECODER_NEED_MORE_FRAME = -1;
     private static final int VIDEO_DECODER_ERROR_OTHER = -2;
     private static final int VIDEO_DECODER_ERROR_READ_FRAME = -3;
+    private static final int VIDEO_DECODER_ERROR_INVAILD_Data = -4;
     // LINT.ThenChange(../../../../../../../jni/ffmpeg_jni.cc)
 
     private final String codecName;
@@ -453,6 +454,9 @@ private boolean decode() throws InterruptedException {
                         false
                 );
             }
+            if (getFrameResult == VIDEO_DECODER_ERROR_INVAILD_Data){
+                outputBuffer.shouldBeSkipped = true;
+            }
             if (getFrameResult == VIDEO_DECODER_ERROR_OTHER) {
                 throw new FfmpegDecoderException("ffmpegDecode error: (see logcat)");
             }
@@ -617,7 +621,7 @@ private boolean decode() throws InterruptedException {
      * @return {@link #VIDEO_DECODER_SUCCESS} if successful, {@link #VIDEO_DECODER_ERROR_OTHER} if an
      * error occurred.
      */
-    private native int ffmpegSendPacket(long context, ByteBuffer encodedData, int length,
+    private native int ffmpegSendPacket(long context, ByteBuffer encodedData,int offset, int length,
                                         long inputTime);
 
     /**
