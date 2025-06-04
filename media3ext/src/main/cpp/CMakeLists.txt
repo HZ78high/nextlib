@@ -8,7 +8,10 @@ cmake_minimum_required(VERSION 3.22.1)
 # Declares and names the project.
 
 project("media3ext")
-
+string(TOLOWER "${CMAKE_BUILD_TYPE}" build_type)
+if(build_type MATCHES "^rel")
+    add_compile_options("-O2")
+endif()
 set(ffmpeg_dir ${CMAKE_SOURCE_DIR}/../../../../ffmpeg/output)
 set(ffmpeg_libs ${ffmpeg_dir}/lib/${ANDROID_ABI})
 
@@ -44,3 +47,5 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         log
         android
         ${ffmpeg_libs_names})
+target_link_options(${CMAKE_PROJECT_NAME}
+        PRIVATE "-Wl,-z,max-page-size=16384")

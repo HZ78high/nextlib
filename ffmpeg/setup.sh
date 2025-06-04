@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # Versions
+DAV1D_VERSION="1.5.1"
 VPX_VERSION="1.15.1"
 AOM_VERSION="3.12.1"
 MBEDTLS_VERSION="3.6.3"
 FFMPEG_VERSION="7.1.1"
-export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-/home/hyz/Android-dv/nkd/android-ndk-r28}"
+export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$HOME/Android-dv/nkd/android-ndk-r28}"
 CMAKE_HOME="${CMAKE_HOME_PATH:-/mnt/c/_Linux/cmake-4.0.0-linux-x86_64}"
 #if [ -n "$ANDROID_SDK_HOME" ]; then
 #  CMAKE_HOME="${ANDROID_SDK_HOME}/cmake/3.31.6"
@@ -22,14 +23,16 @@ FFMPEG_DIR="$SOURCES_DIR"/ffmpeg-"$FFMPEG_VERSION"
 VPX_DIR="$SOURCES_DIR"/libvpx-"$VPX_VERSION"
 AOM_DIR="$SOURCES_DIR"/libaom-"$AOM_VERSION"
 MBEDTLS_DIR="$SOURCES_DIR"/mbedtls-"$MBEDTLS_VERSION"
+DAV1D_DIR="$SOURCES_DIR/dav1d-$DAV1D_VERSION"
 VPX_OUT_DIR="$BUILD_DIR"/vpx-"$VPX_VERSION"
 AOM_OUT_DIR="$BUILD_DIR"/aom-"$AOM_VERSION"
 MEDTLS_OUT_DIR="$BUILD_DIR"/mbedtls-"$MBEDTLS_VERSION"
+DAV1D_OUT_DIR="$BUILD_DIR/dav1d-$DAV1D_VERSION"
 
 # Configuration
 ANDROID_ABIS="x86 x86_64 armeabi-v7a arm64-v8a"
 ANDROID_PLATFORM=21
-ENABLED_DECODERS="vorbis opus flac alac pcm_mulaw pcm_alaw mp3 amrnb amrwb aac ac3 eac3 dca mlp truehd h264 hevc mpeg2video mpegvideo"
+ENABLED_DECODERS="vorbis opus flac alac pcm_mulaw pcm_alaw mp3 amrnb amrwb aac ac3 eac3 dca mlp truehd h264 hevc mpeg2video mpegvideo libdav1d libvpx_vp8 libvpx_vp9"
 JOBS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || sysctl -n hw.physicalcpu || echo 4)"
 
 # Set up host platform variables
@@ -70,6 +73,17 @@ function downloadLibAom() {
   [ -e "$AOM_FILE" ] || { echo "$AOM_FILE does not exist. Exiting..."; exit 1; }
   tar -zxf "$AOM_FILE"
   rm "$AOM_FILE"
+  popd
+}
+
+function downloadDAV1D() {
+  pushd "$SOURCES_DIR"
+  echo "Downloading Aom source code of version $DAV1D_VERSION..."
+  DAV1D_FILE="dav1d-$DAV1D_VERSION.tar.gz"
+  curl -L "https://code.videolan.org/videolan/dav1d/-/archive/${DAV1D_VERSION}/dav1d-${DAV1D_VERSION}.tar.gz" -o $DAV1D_FILE
+  [ -e "$DAV1D_FILE" ] || { echo "$DAV1D_FILE does not exist. Exiting..."; exit 1; }
+  tar -zxf "$DAV1D_FILE"
+  rm "$DAV1D_FILE"
   popd
 }
 
@@ -160,7 +174,7 @@ function buildLibVpx() {
       --disable-webm-io \
       --disable-libyuv \
       --enable-better-hw-compatibility \
-      --disable-runtime-cpu-detect \
+      --enable-runtime-cpu-detect \
       ${EXTRA_BUILD_FLAGS}
 
     make -j"$JOBS"
@@ -219,7 +233,7 @@ function buildLibAom() {
       -DCONFIG_AV1_ENCODER=0 \
       -DENABLE_DOCS=0 \
       -DENABLE_TESTS=0 \
-      -DCONFIG_RUNTIME_CPU_DETECT=0 \
+      -DCONFIG_RUNTIME_CPU_DETECT=1 \
       -DCONFIG_WEBM_IO=0 \
       -DENABLE_EXAMPLES=0 \
       -DCONFIG_REALTIME_ONLY=1 \
@@ -227,6 +241,95 @@ function buildLibAom() {
 
     make -j"$JOBS"
     make install
+  } &
+  done
+  wait
+  popd
+}
+
+# shellcheck disable=SC2120
+function buildDAV1D() {
+  local ABI
+  local ABIS="${1:-$ANDROID_ABIS}"
+  local PKG_CONFIG_EXECUTABLE="$(which pkg-config)"
+  local NASM_EXECUTABLE="$(which nasm)"
+  local MESON_EXECUTABLE="$(which meson)"
+  local NINJA_EXECUTABLE="$(which ninja)"
+  local AR="${TOOLCHAIN_PREFIX}/bin/llvm-ar"
+  local STRIP="${TOOLCHAIN_PREFIX}/bin/llvm-strip"
+  local SYSROOT_PATH="${TOOLCHAIN_PREFIX}/sysroot"
+  pushd "$DAV1D_DIR"
+  for ABI in $ABIS; do
+  {
+    local CROSS_FILE_NAME=crossfile-${ABI}.meson
+    rm "${CROSS_FILE_NAME}"
+    local TOOLCHAIN
+    local CPU_FAMILY=
+    local ARCH
+    # Set up environment variables
+    case $ABI in
+    armeabi-v7a)
+      TOOLCHAIN=armv7a-linux-androideabi21-
+      ARCH=arm
+      ;;
+    arm64-v8a)
+      TOOLCHAIN=aarch64-linux-android21-
+      ARCH=aarch64
+      ;;
+    x86)
+      TOOLCHAIN=i686-linux-android21-
+      CPU_FAMILY=x86
+      ARCH=i686
+      ;;
+    x86_64)
+      TOOLCHAIN=x86_64-linux-android21-
+      ARCH=x86_64
+      ;;
+    *)
+      echo "Unsupported architecture: $ABI"
+      exit 1
+      ;;
+    esac
+    [ -z "${CPU_FAMILY}" ] && CPU_FAMILY=${ARCH}
+    local CC="${TOOLCHAIN_PREFIX}/bin/${TOOLCHAIN}clang"
+    local INSTALL_DIR="${DAV1D_OUT_DIR}/${ABI}"
+    cat > "${CROSS_FILE_NAME}" << EOF
+    [binaries]
+    c = '${CC}'
+    ar = '${AR}'
+    strip = '${STRIP}'
+    nasm = '${NASM_EXECUTABLE}'
+    pkgconfig = '${PKG_CONFIG_EXECUTABLE}'
+
+    [properties]
+    needs_exe_wrapper = true
+    sys_root = '${SYSROOT_PATH}'
+
+    [host_machine]
+    system = 'linux'
+    cpu_family = '${CPU_FAMILY}'
+    cpu = '${ARCH}'
+    endian = 'little'
+
+    [built-in options]
+    prefix = '${INSTALL_DIR}'
+EOF
+    local MESON_BUILD_DIR="$DAV1D_DIR/build/${ABI}"
+    rm -rf "${MESON_BUILD_DIR}"
+
+    ${MESON_EXECUTABLE} setup . "${MESON_BUILD_DIR}" \
+      --cross-file "${CROSS_FILE_NAME}" \
+      --default-library=static \
+      -Denable_asm=true \
+      -Denable_tools=false \
+      -Denable_tests=false \
+      -Denable_examples=false \
+      -Dtestdata_tests=false
+
+    cd "${MESON_BUILD_DIR}"
+
+    "${NINJA_EXECUTABLE}" -j"$JOBS"
+    "${NINJA_EXECUTABLE}" install
   } &
   done
   wait
@@ -294,7 +397,7 @@ function buildFfmpeg() {
     esac
 
     local temp="$ABI/lib/pkgconfig"
-    local new_pkg_config_path="$MEDTLS_OUT_DIR/$temp:$VPX_OUT_DIR/$temp:$AOM_OUT_DIR/$temp:$PKG_CONFIG_PATH"
+    local new_pkg_config_path="$MEDTLS_OUT_DIR/$temp:$VPX_OUT_DIR/$temp:$DAV1D_OUT_DIR/$temp"
     new_pkg_config_path="$(echo "$new_pkg_config_path" | sed 's/:$//')"
     # 更新 PKG_CONFIG_PATH 变量
     # export PKG_CONFIG_PATH="$new_pkg_config_path:$PKG_CONFIG_PATH"
@@ -302,8 +405,8 @@ function buildFfmpeg() {
     local DEP_LD_FLAGS=""  
     # Referencing dependencies without pkgconfig
     local DEP_CFLAGS="-I$AOM_OUT_DIR/$ABI/include -I$VPX_OUT_DIR/$ABI/include -I$MEDTLS_OUT_DIR/$ABI/include"
-    local DEP_LD_FLAGS="-L$AOM_OUT_DIR/$ABI/lib -L$VPX_OUT_DIR/$ABI/lib -L$MEDTLS_OUT_DIR/$ABI/lib" 
-
+    local DEP_LD_FLAGS="-L$AOM_OUT_DIR/$ABI/lib -L$VPX_OUT_DIR/$ABI/lib -L$MEDTLS_OUT_DIR/$ABI/lib"
+    DEP_LD_FLAGS="-Wl,-z,max-page-size=16384 $DEP_LD_FLAGS"
     local CMAKE_BUILD_DIR="${SOURCES_DIR}/temp_ff/${FFMPEG_VERSION}/ffmpeg_build_${ABI}"
     if [[ ! -d "$CMAKE_BUILD_DIR" ]]; then
       mkdir -p "$CMAKE_BUILD_DIR"
@@ -311,7 +414,7 @@ function buildFfmpeg() {
     fi
     cd "${CMAKE_BUILD_DIR}"
     # Configure FFmpeg build
-    env PKG_CONFIG_PATH="$new_pkg_config_path" \
+    env PKG_CONFIG_LIBDIR="$new_pkg_config_path" \
         cc="${TOOLCHAIN_PREFIX}/bin/${TOOLCHAIN}clang" \
         cxx="${TOOLCHAIN_PREFIX}/bin/${TOOLCHAIN}clang++" \
         ar="${TOOLCHAIN_PREFIX}"/bin/llvm-ar \
@@ -346,7 +449,7 @@ function buildFfmpeg() {
       --enable-swresample \
       --enable-avformat \
       --enable-libvpx \
-      --enable-libaom \
+      --enable-libdav1d \
       --enable-protocol=file,http,https,mmsh,mmst,pipe,rtmp,rtmps,rtmpt,rtmpts,rtp,tls \
       --enable-version3 \
       --enable-mbedtls \
@@ -386,10 +489,13 @@ if [[ ! -d "$OUTPUT_DIR" ]]; then
     downloadLibVpx
   fi
 
-  if [[ ! -d "$AOM_DIR" ]]; then
-    downloadLibAom
-  fi
+  # if [[ ! -d "$AOM_DIR" ]]; then
+  #   downloadLibAom
+  # fi
 
+  if [[ ! -d "$DAV1D_DIR" ]]; then
+    downloadDAV1D
+  fi
   # Download Ffmpeg source code if it doesn't exist
   if [[ ! -d "$FFMPEG_DIR" ]]; then
     downloadFfmpeg
@@ -402,8 +508,11 @@ if [[ ! -d "$OUTPUT_DIR" ]]; then
   if [[ ! -d "$VPX_OUT_DIR" ]]; then
     buildLibVpx &
   fi
-  if [[ ! -d "$AOM_OUT_DIR" ]]; then
-    buildLibAom &
+  # if [[ ! -d "$AOM_OUT_DIR" ]]; then
+  #   buildLibAom &
+  # fi
+  if [[ ! -d "$DAV1D_OUT_DIR" ]]; then
+    buildDAV1D &
   fi
   wait
   buildFfmpeg
