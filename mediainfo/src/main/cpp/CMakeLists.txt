@@ -11,7 +11,10 @@ set(ffmpeg_dir ${CMAKE_SOURCE_DIR}/../../../../ffmpeg/output)
 set(ffmpeg_libs ${ffmpeg_dir}/lib/${ANDROID_ABI})
 
 include_directories(${ffmpeg_dir}/include/${ANDROID_ABI})
-
+string(TOLOWER "${CMAKE_BUILD_TYPE}" build_type)
+if(build_type MATCHES "^rel")
+    add_compile_options("-O2")
+endif()
 set(
         # List variable name
         ffmpeg_libs_names
@@ -47,3 +50,5 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         log
         jnigraphics
         ${ffmpeg_libs_names})
+target_link_options(${CMAKE_PROJECT_NAME}
+        PRIVATE "-Wl,-z,max-page-size=16384")
