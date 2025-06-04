@@ -5,3 +5,6 @@
 -keep class androidx.media3.decoder.VideoDecoderOutputBuffer {
     *;
 }
+-keep class io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegVideoDecoder {
+    boolean isAtLeastOutputStartTimeUs(long);
+}
