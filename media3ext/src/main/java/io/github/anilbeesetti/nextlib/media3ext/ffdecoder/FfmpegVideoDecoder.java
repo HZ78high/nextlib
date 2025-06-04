@@ -392,13 +392,13 @@ final class FfmpegVideoDecoder
                         !isAtLeastOutputStartTimeUs(inputBuffer.timeUs),
                         readOnly
                 ) )== VIDEO_DECODER_SUCCESS
-                        || status ==VIDEO_DECODER_ERROR_READ_FRAME || status==VIDEO_DECODER_ERROR_INVAILD_DATA || status >= VIDEO_DECODER_DROP_FRAME || (hasInput && status == VIDEO_DECODER_NEED_MORE_FRAME)) {
+                        || status ==VIDEO_DECODER_ERROR_READ_FRAME || status >= VIDEO_DECODER_DROP_FRAME || (hasInput && status == VIDEO_DECODER_NEED_MORE_FRAME)) {
                     readOnly = true;
                     if (status == VIDEO_DECODER_ERROR_READ_FRAME){
                         hasInput = true;
                         continue;
                     }
-                    if(status==VIDEO_DECODER_ERROR_INVAILD_DATA || status >= VIDEO_DECODER_DROP_FRAME || status==VIDEO_DECODER_NEED_MORE_FRAME){
+                    if(status >= VIDEO_DECODER_DROP_FRAME){
                         outputBuffer.shouldBeSkipped = true;
                     }
                     synchronized (lock) {
@@ -407,11 +407,13 @@ final class FfmpegVideoDecoder
                             releaseInputBufferInternal(inputBuffer);
                             flushInternal();
                             return true;
-                        } else if (!isAtLeastOutputStartTimeUs(outputBuffer.timeUs)
+                        } if(status == VIDEO_DECODER_NEED_MORE_FRAME){
+                            outputBuffer.release();
+                        }else if (!isAtLeastOutputStartTimeUs(outputBuffer.timeUs)
                                 || outputBuffer.shouldBeSkipped) {
                             if (status >= VIDEO_DECODER_DROP_FRAME){
                                 skippedOutputBufferCount+=status;
-                            }else if(status != VIDEO_DECODER_NEED_MORE_FRAME){
+                            }else{
                                 skippedOutputBufferCount++;
                             }
                             outputBuffer.release();
@@ -421,7 +423,6 @@ final class FfmpegVideoDecoder
                             skippedOutputBufferCount = 0;
                             queuedOutputBuffers.addLast(outputBuffer);
                         }
-                        if(status==VIDEO_DECODER_ERROR_INVAILD_DATA) break;
                         if(status >=VIDEO_DECODER_DROP_FRAME || status==VIDEO_DECODER_NEED_MORE_FRAME){
                             if(hasInput){
                                 hasInput = false;
@@ -448,6 +449,8 @@ final class FfmpegVideoDecoder
                     outputBuffer.release();
                 }else if(status==VIDEO_DECODER_ERROR_INVAILD_DATA){
                     Log.e(TAG,"VIDEO_DECODER_ERROR_INVAILD_DATA");
+                    outputBuffer.release();
+                    ffmpegReset(nativeContext);
                 }else if(status < 0) throw new FfmpegDecoderException("Not Expect error");
             } catch (RuntimeException e) {
                 // This can occur if a sample is malformed in a way that the decoder is not robust against.
