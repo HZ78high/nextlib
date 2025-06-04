@@ -484,40 +484,39 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         jobject thiz,
         jlong jContext,
         jobject encoded_data,
+        jint offset,
         jint length,
         jlong input_time,
         jint output_mode,
         jobject output_buffer,
         jboolean decodeOnly,
         jboolean readOnly) {
-    LOGE("Calling Native decodeOnly %d",decodeOnly);
+    LOGI("Calling Native decodeOnly %d",decodeOnly);
     auto *const jniContext = reinterpret_cast<JniContext *>(jContext);
     AVCodecContext *avContext = jniContext->codecContext;
     // 1. Prepare packet if input exists
     AVPacket *packet = nullptr;
-    if(readOnly){
-        goto read;
-    }
-    if (encoded_data != nullptr && length > 0) {
-        auto *inputBuffer = (uint8_t *) env->GetDirectBufferAddress(encoded_data);
-        if (!inputBuffer) {
-            logError("GetDirectBufferAddress failed", -1);
+    if(!readOnly) {
+        if (encoded_data != nullptr && length > 0) {
+            auto *inputBuffer = (uint8_t *) env->GetDirectBufferAddress(encoded_data);
+            if (!inputBuffer) {
+                logError("GetDirectBufferAddress failed", -1);
+                return VIDEO_DECODER_NEED_MORE_FRAME;
+            }
+
+            packet = av_packet_alloc();
+            if (!packet) {
+                logError("Failed to allocate AVPacket", -1);
+                return VIDEO_DECODER_ERROR_OTHER;
+            }
+            packet->data = inputBuffer + offset;
+            packet->size = length;
+            packet->pts = input_time;
+        } else {
+            logError("Input data is null or zero", -1);
             return VIDEO_DECODER_NEED_MORE_FRAME;
         }
-
-        packet = av_packet_alloc();
-        if (!packet) {
-            logError("Failed to allocate AVPacket", -1);
-            return VIDEO_DECODER_ERROR_OTHER;
-        }
-        packet->data = inputBuffer;
-        packet->size = length;
-        packet->pts = input_time;
-    } else{
-        logError("Input data is null or zero", -1);
-        return VIDEO_DECODER_NEED_MORE_FRAME;
     }
-read:
     // Helper lambda: try receive frames until no more
     auto maybe_receive_all_frames = [&](bool decode_Only) -> int {
         int ret;
@@ -542,12 +541,6 @@ read:
                 if (!dropFrameCount) return VIDEO_DECODER_NEED_MORE_FRAME;
                 return dropFrameCount;
             }
-            if (ret == AVERROR_EOF) {
-                av_frame_free(&frame);
-                LOGI("Drop Frame AVERROR_EOF) Count: %d",dropFrameCount);
-                if (!dropFrameCount) return VIDEO_DECODER_NEED_MORE_FRAME;
-                return dropFrameCount;
-            }
             if (ret) {
                 av_frame_free(&frame);
                 LOGE("Error in Read Frame");
@@ -558,12 +551,6 @@ read:
                 av_frame_unref(frame);
                 dropFrameCount++;
                 continue;
-//                if (decode_Only){
-//                    av_frame_unref(frame);
-//                    continue;
-//                }
-//                av_frame_free(&frame);
-//                return 1;  // skip output if decode_only
             }
             // 填充Java output_buffer数据
             env->CallVoidMethod(output_buffer, jniContext->init_method, frameTime, output_mode,
