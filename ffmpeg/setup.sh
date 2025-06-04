@@ -32,7 +32,7 @@ DAV1D_OUT_DIR="$BUILD_DIR/dav1d-$DAV1D_VERSION"
 # Configuration
 ANDROID_ABIS="x86 x86_64 armeabi-v7a arm64-v8a"
 ANDROID_PLATFORM=21
-ENABLED_DECODERS="vorbis opus flac alac pcm_mulaw pcm_alaw mp3 amrnb amrwb aac ac3 eac3 dca mlp truehd h264 hevc mpeg2video mpegvideo libdav1d libvpx_vp8 libvpx_vp9"
+ENABLED_DECODERS="vorbis opus flac alac pcm_mulaw pcm_alaw mp3 amrnb amrwb aac ac3 eac3 dca mlp truehd h264 hevc mpeg2video mpegvideo libaom_av1 libvpx_vp8 libvpx_vp9"
 JOBS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || sysctl -n hw.physicalcpu || echo 4)"
 
 # Set up host platform variables
@@ -396,11 +396,12 @@ function buildFfmpeg() {
       ;;
     esac
 
-    local temp="$ABI/lib/pkgconfig"
-    local new_pkg_config_path="$MEDTLS_OUT_DIR/$temp:$VPX_OUT_DIR/$temp:$DAV1D_OUT_DIR/$temp"
-    new_pkg_config_path="$(echo "$new_pkg_config_path" | sed 's/:$//')"
+    # local temp="$ABI/lib/pkgconfig"
+    # local new_pkg_config_path="$MEDTLS_OUT_DIR/$temp:$VPX_OUT_DIR/$temp:$DAV1D_OUT_DIR/$temp"
+    # new_pkg_config_path="$(echo "$new_pkg_config_path" | sed 's/:$//')"
     # 更新 PKG_CONFIG_PATH 变量
     # export PKG_CONFIG_PATH="$new_pkg_config_path:$PKG_CONFIG_PATH"
+    local new_pkg_config_path=""
     local DEP_CFLAGS=""
     local DEP_LD_FLAGS=""  
     # Referencing dependencies without pkgconfig
@@ -449,7 +450,7 @@ function buildFfmpeg() {
       --enable-swresample \
       --enable-avformat \
       --enable-libvpx \
-      --enable-libdav1d \
+      --enable-libaom \
       --enable-protocol=file,http,https,mmsh,mmst,pipe,rtmp,rtmps,rtmpt,rtmpts,rtp,tls \
       --enable-version3 \
       --enable-mbedtls \
@@ -489,13 +490,13 @@ if [[ ! -d "$OUTPUT_DIR" ]]; then
     downloadLibVpx
   fi
 
-  # if [[ ! -d "$AOM_DIR" ]]; then
-  #   downloadLibAom
-  # fi
-
-  if [[ ! -d "$DAV1D_DIR" ]]; then
-    downloadDAV1D
+  if [[ ! -d "$AOM_DIR" ]]; then
+    downloadLibAom
   fi
+
+  # if [[ ! -d "$DAV1D_DIR" ]]; then
+  #   downloadDAV1D
+  # fi
   # Download Ffmpeg source code if it doesn't exist
   if [[ ! -d "$FFMPEG_DIR" ]]; then
     downloadFfmpeg
@@ -508,12 +509,12 @@ if [[ ! -d "$OUTPUT_DIR" ]]; then
   if [[ ! -d "$VPX_OUT_DIR" ]]; then
     buildLibVpx &
   fi
-  # if [[ ! -d "$AOM_OUT_DIR" ]]; then
-  #   buildLibAom &
-  # fi
-  if [[ ! -d "$DAV1D_OUT_DIR" ]]; then
-    buildDAV1D &
+  if [[ ! -d "$AOM_OUT_DIR" ]]; then
+    buildLibAom &
   fi
+  # if [[ ! -d "$DAV1D_OUT_DIR" ]]; then
+  #   buildDAV1D &
+  # fi
   wait
   buildFfmpeg
 fi

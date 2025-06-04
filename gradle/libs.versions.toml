@@ -1,5 +1,5 @@
 [versions]
-publish="1.1.1"
+publish="1.1.2"
 cmake="3.22.1"
 androidNdk="27.2.12479018"
 agp = "8.9.2"
