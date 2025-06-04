@@ -30,7 +30,7 @@ static const int VIDEO_DECODER_SUCCESS = 0;
 static const int VIDEO_DECODER_NEED_MORE_FRAME = -1;
 static const int VIDEO_DECODER_ERROR_OTHER = -2;
 static const int VIDEO_DECODER_ERROR_READ_FRAME = -3;
-static const int VIDEO_DECODER_ERROR_Invalid_Data = -4;
+static const int VIDEO_DECODER_ERROR_INVALID_Data = -4;
 static const int VIDEO_DECODER_DROP_FRAME = 1;
 
 
@@ -395,7 +395,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         logError("avcodec_send_packet-video", result);
         if (result == AVERROR_INVALIDDATA) {
             // need more data
-            return VIDEO_DECODER_ERROR_OTHER;
+            return VIDEO_DECODER_ERROR_INVALID_Data;
         } else if (result == AVERROR(EAGAIN)) {
             // need read frame
             return VIDEO_DECODER_ERROR_READ_FRAME;
@@ -594,7 +594,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
             return VIDEO_DECODER_ERROR_READ_FRAME;
         }else if(result == AVERROR_INVALIDDATA){
             logError("avcodec_send_packet -error -Invalid data", result);
-            return VIDEO_DECODER_ERROR_Invalid_Data;
+            return VIDEO_DECODER_ERROR_INVALID_Data;
         }
         else{
             logError("avcodec_send_packet -error", result);
