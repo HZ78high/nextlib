@@ -437,7 +437,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         return VIDEO_DECODER_ERROR_OTHER;
     }
     auto shouldKeep = env->CallBooleanMethod(thiz, jniContext->isAtLeastOutputStartTimeUs_method,frame->pts);
-    if(!shouldKeep){
+    if(!shouldKeep || decode_only){
         av_frame_free(&frame);
         return VIDEO_DECODER_DROP_FRAME;
     }
@@ -519,66 +519,82 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
     }
 read:
     // Helper lambda: try receive frames until no more
-    auto receive_all_frames = [&]() -> int {
+    auto maybe_receive_all_frames = [&](bool decode_Only) -> int {
         int ret;
         AVFrame *frame = av_frame_alloc();
         if (!frame) {
             logError("Failed to allocate AVFrame", -1);
             return VIDEO_DECODER_ERROR_OTHER;
         }
-        ret = avcodec_receive_frame(avContext, frame);
-        auto frameTime = frame->pts;
-        auto shouldKeep = env->CallBooleanMethod(thiz, jniContext->isAtLeastOutputStartTimeUs_method,frameTime);
-        LOGI("Input time %lld Frame Time %lld shouldKeep:%d",input_time,frameTime,shouldKeep);
-        if (ret == AVERROR(EAGAIN)) {
-            av_frame_free(&frame);
-            LOGI("Drop Frame AVERROR(EAGAIN)");
-            return VIDEO_DECODER_NEED_MORE_FRAME;
-        }
-        if(ret == AVERROR_EOF) {
-            av_frame_free(&frame);
-            LOGI("Drop Frame AVERROR_EOF)");
-            return VIDEO_DECODER_NEED_MORE_FRAME;
-        }
-        if (ret){
-            av_frame_free(&frame);
-            LOGE("Error in Read Frame");
-            return ret;
-        }
-        if (!shouldKeep || decodeOnly) {
-            av_frame_free(&frame);
-            LOGI("Drop Frame Time");
-            return 1;  // skip output if decode_only
-        }
-        // 填充Java output_buffer数据
-        env->CallVoidMethod(output_buffer, jniContext->init_method, frameTime, output_mode, nullptr);
-        jboolean init_result = env->CallBooleanMethod(
-                output_buffer, jniContext->init_for_yuv_frame_method,
-                frame->width, frame->height,
-                frame->linesize[0], frame->linesize[1],
-                0);
-        if (env->ExceptionCheck() || !init_result) {
-            av_frame_free(&frame);
-            return VIDEO_DECODER_ERROR_OTHER;
-        }
+        int dropFrameCount = 0;
+        while (true) {
+            ret = avcodec_receive_frame(avContext, frame);
+            auto frameTime = frame->pts;
+            if(frameTime<0) frameTime = input_time;
+            auto shouldKeep = env->CallBooleanMethod(thiz,
+                                                     jniContext->isAtLeastOutputStartTimeUs_method,
+                                                     frameTime);
+            LOGI("Input time %lld Frame Time %lld shouldKeep:%d dropFrameCount: %d", input_time, frame->pts,
+                 shouldKeep,dropFrameCount);
+            if (ret == AVERROR(EAGAIN)) {
+                av_frame_free(&frame);
+                LOGI("Drop Frame AVERROR(EAGAIN) Count: %d",dropFrameCount);
+                if (!dropFrameCount) return VIDEO_DECODER_NEED_MORE_FRAME;
+                return dropFrameCount;
+            }
+            if (ret == AVERROR_EOF) {
+                av_frame_free(&frame);
+                LOGI("Drop Frame AVERROR_EOF) Count: %d",dropFrameCount);
+                if (!dropFrameCount) return VIDEO_DECODER_NEED_MORE_FRAME;
+                return dropFrameCount;
+            }
+            if (ret) {
+                av_frame_free(&frame);
+                LOGE("Error in Read Frame");
+                return ret;
+            }
+            if (!shouldKeep || decode_Only) {
+                LOGI("Drop Frame Time");
+                av_frame_unref(frame);
+                dropFrameCount++;
+                continue;
+//                if (decode_Only){
+//                    av_frame_unref(frame);
+//                    continue;
+//                }
+//                av_frame_free(&frame);
+//                return 1;  // skip output if decode_only
+            }
+            // 填充Java output_buffer数据
+            env->CallVoidMethod(output_buffer, jniContext->init_method, frameTime, output_mode,
+                                nullptr);
+            jboolean init_result = env->CallBooleanMethod(
+                    output_buffer, jniContext->init_for_yuv_frame_method,
+                    frame->width, frame->height,
+                    frame->linesize[0], frame->linesize[1],
+                    0);
+            if (env->ExceptionCheck() || !init_result) {
+                av_frame_free(&frame);
+                return VIDEO_DECODER_ERROR_OTHER;
+            }
 
-        jobject data_object = env->GetObjectField(output_buffer, jniContext->data_field);
-        auto *data = (jbyte *) env->GetDirectBufferAddress(data_object);
+            jobject data_object = env->GetObjectField(output_buffer, jniContext->data_field);
+            auto *data = (jbyte *) env->GetDirectBufferAddress(data_object);
 
-        int uvHeight = (frame->height + 1) / 2;
-        size_t yLength = frame->linesize[0] * frame->height;
-        size_t uvLength = frame->linesize[1] * uvHeight;
+            int uvHeight = (frame->height + 1) / 2;
+            size_t yLength = frame->linesize[0] * frame->height;
+            size_t uvLength = frame->linesize[1] * uvHeight;
 
-        memcpy(data, frame->data[0], yLength);
-        memcpy(data + yLength, frame->data[1], uvLength);
-        memcpy(data + yLength + uvLength, frame->data[2], uvLength);
+            memcpy(data, frame->data[0], yLength);
+            memcpy(data + yLength, frame->data[1], uvLength);
+            memcpy(data + yLength + uvLength, frame->data[2], uvLength);
 
-//            av_frame_unref(frame);
-        av_frame_free(&frame);
-        return 0;
+            av_frame_free(&frame);
+            return 0;
+        }
         
     };
-    if (readOnly) return receive_all_frames();
+    if (readOnly) return maybe_receive_all_frames(decodeOnly);
     // 2. 发送包，如果失败是EAGAIN，先拉帧释放缓冲再重试
 
     int result;
@@ -599,11 +615,11 @@ read:
         }
     }
     int rec_ret;
-    rec_ret = receive_all_frames();
+    rec_ret = maybe_receive_all_frames(decodeOnly);
     av_packet_free(&packet);
-    if (rec_ret == 1) {
+    if (rec_ret > 0) {
         LOGI("Drop Frame");
-        return -1;
+        return rec_ret;
     }
     if (rec_ret == -1) {
         LOGI("need more frame");

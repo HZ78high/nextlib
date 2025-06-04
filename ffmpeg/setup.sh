@@ -168,7 +168,7 @@ function buildLibVpx() {
       --disable-webm-io \
       --disable-libyuv \
       --enable-better-hw-compatibility \
-      --disable-runtime-cpu-detect \
+      --enable-runtime-cpu-detect \
       ${EXTRA_BUILD_FLAGS}
 
     make -j"$JOBS"
@@ -227,7 +227,7 @@ function buildLibAom() {
       -DCONFIG_AV1_ENCODER=0 \
       -DENABLE_DOCS=0 \
       -DENABLE_TESTS=0 \
-      -DCONFIG_RUNTIME_CPU_DETECT=0 \
+      -DCONFIG_RUNTIME_CPU_DETECT=1 \
       -DCONFIG_WEBM_IO=0 \
       -DENABLE_EXAMPLES=0 \
       -DCONFIG_REALTIME_ONLY=1 \

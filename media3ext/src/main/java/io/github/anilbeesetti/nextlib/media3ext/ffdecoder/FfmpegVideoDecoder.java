@@ -36,7 +36,7 @@ final class FfmpegVideoDecoder
     private static final int VIDEO_DECODER_NEED_MORE_FRAME = -1;
     private static final int VIDEO_DECODER_ERROR_OTHER = -2;
     private static final int VIDEO_DECODER_ERROR_READ_FRAME = -3;
-    private static final int VIDEO_DECODER_ERROR_INVAILD_Data = -4;
+    private static final int VIDEO_DECODER_ERROR_INVAILD_DATA = -4;
     // LINT.ThenChange(../../../../../../../jni/ffmpeg_jni.cc)
 
     private final String codecName;
@@ -327,8 +327,7 @@ final class FfmpegVideoDecoder
 private boolean decode() throws InterruptedException {
     DecoderInputBuffer inputBuffer;
     VideoDecoderOutputBuffer outputBuffer;
-    boolean needMoreData = false;
-
+    int getFrameResult = -4;
     // Wait until we have an input buffer to decode, and an output buffer to decode into.
     synchronized (lock) {
         if (flushed) {
@@ -368,7 +367,7 @@ private boolean decode() throws InterruptedException {
             ByteBuffer inputData = Util.castNonNull(inputBuffer.data);
             int inputSize = inputData.limit();
             boolean decodeOnly = !isAtLeastOutputStartTimeUs(inputBuffer.timeUs);
-            int getFrameResult = ffmpegDecode(
+            getFrameResult = ffmpegDecode(
                     nativeContext,
                     inputBuffer.data,
                     inputSize,
@@ -390,18 +389,23 @@ private boolean decode() throws InterruptedException {
                         !isAtLeastOutputStartTimeUs(inputBuffer.timeUs),
                         true
                 ) )== VIDEO_DECODER_SUCCESS
-                        || status == VIDEO_DECODER_DROP_FRAME) {
-                    if (status == VIDEO_DECODER_DROP_FRAME) {
+                        || status >= VIDEO_DECODER_DROP_FRAME) {
+                    if (status >= VIDEO_DECODER_DROP_FRAME) {
                         outputBuffer.shouldBeSkipped = true;
                     }
                     synchronized (lock) {
                         if (flushed) {
                             outputBuffer.release();
+                            releaseInputBufferInternal(inputBuffer);
                             flushInternal();
-                            break;
+                            return true;
                         } else if (!isAtLeastOutputStartTimeUs(outputBuffer.timeUs)
                                 || outputBuffer.shouldBeSkipped) {
-                            skippedOutputBufferCount++;
+                            if (status > 0){
+                                skippedOutputBufferCount+=status;
+                            }else {
+                                skippedOutputBufferCount++;
+                            }
                             outputBuffer.release();
                         } else {
                             outputBuffer.format = inputBuffer.format;
@@ -416,6 +420,7 @@ private boolean decode() throws InterruptedException {
                             return false;
                         }
                         if (flushed) {
+                            releaseInputBufferInternal(inputBuffer);
                             flushInternal();
                             return true;
                         }
@@ -429,7 +434,9 @@ private boolean decode() throws InterruptedException {
                 }else throw new FfmpegDecoderException("Not Expect error");
                 synchronized (lock) {
                     if (flushed) {
+                        releaseInputBufferInternal(inputBuffer);
                         flushInternal();
+                        return true;
                     }
                     while (!released && !(canDecodeInputBuffer() && canDecodeOutputBuffer()) && !flushed) {
                         lock.wait();
@@ -438,6 +445,7 @@ private boolean decode() throws InterruptedException {
                         return false;
                     }
                     if (flushed) {
+                        releaseInputBufferInternal(inputBuffer);
                         flushInternal();
                         return true;
                     }
@@ -454,16 +462,15 @@ private boolean decode() throws InterruptedException {
                         false
                 );
             }
-            if (getFrameResult == VIDEO_DECODER_ERROR_INVAILD_Data){
+            if (getFrameResult == VIDEO_DECODER_ERROR_INVAILD_DATA){
                 outputBuffer.shouldBeSkipped = true;
             }
             if (getFrameResult == VIDEO_DECODER_ERROR_OTHER) {
                 throw new FfmpegDecoderException("ffmpegDecode error: (see logcat)");
             }
 
-            if (getFrameResult == VIDEO_DECODER_NEED_MORE_FRAME) {
-                outputBuffer.shouldBeSkipped = false;
-                needMoreData = true;
+            if (getFrameResult >= VIDEO_DECODER_DROP_FRAME || getFrameResult == VIDEO_DECODER_NEED_MORE_FRAME) {
+                outputBuffer.shouldBeSkipped = true;
             }
 
             if (getFrameResult == 0) {
@@ -494,9 +501,11 @@ private boolean decode() throws InterruptedException {
         if (flushed) {
             outputBuffer.release();
         } else if (outputBuffer.shouldBeSkipped) {
-            skippedOutputBufferCount++;
-            outputBuffer.release();
-        } else if(needMoreData){
+            if (getFrameResult >= VIDEO_DECODER_DROP_FRAME){
+                skippedOutputBufferCount+=getFrameResult;
+            }else if(getFrameResult != VIDEO_DECODER_NEED_MORE_FRAME){
+                skippedOutputBufferCount++;
+            }
             outputBuffer.release();
         }else {
             outputBuffer.skippedOutputBufferCount = skippedOutputBufferCount;
