@@ -92,6 +92,8 @@ final class FfmpegVideoDecoder
     @GuardedBy("lock")
     @Nullable
     private DecoderInputBuffer stashInput;
+    @GuardedBy("lock")
+    private Long lastTimeUs = C.TIME_UNSET;
     /**
      * Creates a Ffmpeg video Decoder.
      *
@@ -489,6 +491,7 @@ final class FfmpegVideoDecoder
         return true;
     }
     private boolean decodeTest() throws InterruptedException {
+        long correctTimeUs = C.TIME_UNSET;
         synchronized (lock) {
             if (flushed) {
                 flushInternal();
@@ -508,6 +511,8 @@ final class FfmpegVideoDecoder
             }
             if (stashInput == null) {
                 stashInput = queuedInputBuffers.removeFirst();
+                correctTimeUs = lastTimeUs;
+                lastTimeUs = stashInput.timeUs;
             }
             if (stashInput.isEndOfStream()){
                 releaseInputBufferInternal(stashInput);
@@ -535,12 +540,18 @@ final class FfmpegVideoDecoder
         }
         @Nullable FfmpegDecoderException exception = null;
         try {
+            VideoDecoderOutputBuffer outputBuffer = null;
             boolean isStart = stashInput.isFirstSample();
+            boolean decodeOnly;
             ByteBuffer inputData = Util.castNonNull(stashInput.data);
             int inputOffset = inputData.position();
             int inputSize = inputData.remaining();
             int status = ffmpegSendPacket(nativeContext, inputData, inputOffset, inputSize, stashInput.timeUs);
+            decodeOnly = !isAtLeastOutputStartTimeUs(stashInput.timeUs);
             if (status == VIDEO_DECODER_ERROR_INVAILD_DATA || status == VIDEO_DECODER_SUCCESS) {
+                if (decodeOnly && status == VIDEO_DECODER_SUCCESS){
+                    ffmpegReceiveAllFrame(nativeContext, outputBuffer, outputMode,true);
+                }
                 if (status == VIDEO_DECODER_ERROR_INVAILD_DATA)
                     ffmpegReset(nativeContext);
                 releaseInputBuffer(stashInput);
@@ -549,7 +560,6 @@ final class FfmpegVideoDecoder
             }
             if (status==VIDEO_DECODER_ERROR_OTHER)
                 throw new FfmpegDecoderException("ffmpegDecode error: (see logcat)");
-            VideoDecoderOutputBuffer outputBuffer;
             int remainFramesCount;
             do {
                 synchronized (lock) {
@@ -572,7 +582,8 @@ final class FfmpegVideoDecoder
                     }
                     outputBuffer = availableOutputBuffers[--availableOutputBufferCount];
                 }
-                remainFramesCount = ffmpegReceiveAllFrame(nativeContext, outputBuffer, outputMode);
+                decodeOnly = !isAtLeastOutputStartTimeUs(correctTimeUs);
+                remainFramesCount = ffmpegReceiveAllFrame(nativeContext, outputBuffer, outputMode,decodeOnly);
                 if (remainFramesCount < -1) {
                     throw new FfmpegDecoderException("Read Frame Error");
                 }
@@ -668,6 +679,7 @@ final class FfmpegVideoDecoder
     @GuardedBy("lock")
     private void flushInternal() {
         skippedOutputBufferCount = 0;
+        lastTimeUs = C.TIME_UNSET;
         if (stashInput !=null){
             releaseInputBuffer(stashInput);
             stashInput = null;
@@ -752,6 +764,6 @@ final class FfmpegVideoDecoder
             long context, int outputMode, VideoDecoderOutputBuffer outputBuffer, boolean decodeOnly);
     private native void ffmpegReleaseFrame(long context,VideoDecoderOutputBuffer outputBuffer);
     private native int ffmpegDecode(long context,ByteBuffer encodedData,int offset,int length,long inputTime,int outputMode, VideoDecoderOutputBuffer outputBuffer ,boolean decodeOnly,boolean readOnly);
-    private native int ffmpegReceiveAllFrame(long context,VideoDecoderOutputBuffer outputBuffer,int outputMode);
+    private native int ffmpegReceiveAllFrame(long context,@Nullable VideoDecoderOutputBuffer outputBuffer,int outputMode,boolean decodeOnly);
 
 }

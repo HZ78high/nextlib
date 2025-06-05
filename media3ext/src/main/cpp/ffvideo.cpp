@@ -746,22 +746,30 @@ extern "C"
 JNIEXPORT jint JNICALL
 Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpegReceiveAllFrame(JNIEnv *env,
                                                                                                  jobject thiz,jlong jContext,
-                                                                                                 jobject output_buffer,jint output_mode){
+                                                                                                 jobject output_buffer,
+                                                                                                 jint output_mode,
+                                                                                                 jboolean decodeOnly){
     if(!jContext){
         return -1;
     }
     JniContext* const jniContext = reinterpret_cast<JniContext*>(jContext);
     AVCodecContext *avContext = jniContext->codecContext;
-    auto frame = jniContext->pop_frame();
-    if (frame){
-        env->CallVoidMethod(output_buffer, jniContext->init_method, frame->pts, output_mode,
-                            nullptr);
-        env->SetLongField(output_buffer, jniContext->decoder_private_field,
-                          (uint64_t)frame);
-        env->CallVoidMethod(output_buffer, jniContext->init_for_private_frame_method,
-                            frame->width, frame->height);
-        return jniContext->remain_frame_count();
+    AVFrame *frame = nullptr;
+    if (!decodeOnly) {
+        frame = jniContext->pop_frame();
+        if (frame) {
+            env->CallVoidMethod(output_buffer, jniContext->init_method, frame->pts, output_mode,
+                                nullptr);
+            env->SetLongField(output_buffer, jniContext->decoder_private_field,
+                              (uint64_t) frame);
+            env->CallVoidMethod(output_buffer, jniContext->init_for_private_frame_method,
+                                frame->width, frame->height);
+            return jniContext->remain_frame_count();
+        }
+    } else{
+        jniContext->clear_frames();
     }
+
     int ret;
     int drop_frame_count = 0;
     int read_count = 0;
@@ -771,6 +779,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         if (ret == AVERROR(EAGAIN)) {
             av_frame_free(&frame);
             env->CallVoidMethod(thiz,jniContext->add_skip_buffer_count_method,drop_frame_count);
+            LOGI("read_count: %d\ndrop_frame_count: %d",read_count,drop_frame_count);
             if (!read_count) return -1;
             return jniContext->remain_frame_count();
         }
@@ -778,7 +787,9 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
             av_frame_free(&frame);
             return -2;
         }
-        if (!env->CallBooleanMethod(thiz,
+
+        LOGI("time: %lld",frame->pts);
+        if (decodeOnly || !env->CallBooleanMethod(thiz,
                                    jniContext->isAtLeastOutputStartTimeUs_method,
                                    frame->pts)){
             drop_frame_count++;
