@@ -99,7 +99,6 @@ AVCodecContext *createContext(JNIEnv *env, AVCodec *codec, jbyteArray extraData,
     if (context->codec_id == AV_CODEC_ID_PCM_MULAW ||
         context->codec_id == AV_CODEC_ID_PCM_ALAW) {
         context->sample_rate = rawSampleRate;
-        context->ch_layout.nb_channels = rawChannelCount;
         av_channel_layout_default(&context->ch_layout, rawChannelCount);
     }
     context->err_recognition = AV_EF_IGNORE_ERR;

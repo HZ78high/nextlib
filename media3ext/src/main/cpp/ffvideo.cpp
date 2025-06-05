@@ -71,6 +71,8 @@ struct JniContext {
     }
 
     jfieldID data_field{};
+    jfieldID display_width_field{};
+    jfieldID display_height_field{};
     jfieldID yuvPlanes_field{};
     jfieldID yuvStrides_field{};
     jmethodID init_for_yuv_frame_method{};
@@ -82,6 +84,7 @@ struct JniContext {
 
     ANativeWindow *native_window = nullptr;
     jobject surface = nullptr;
+    int rotate_degree = 0;
     int native_window_width = 0;
     int native_window_height = 0;
 };
@@ -135,7 +138,8 @@ struct JniContext {
 JniContext *createVideoContext(JNIEnv *env,
                                AVCodec *codec,
                                jbyteArray extraData,
-                               jint threads) {
+                               jint threads,
+                               jint degree) {
     AVCodecContext *codecContext = avcodec_alloc_context3(codec);
     if (!codecContext) {
         LOGE("Failed to allocate context.");
@@ -154,7 +158,11 @@ JniContext *createVideoContext(JNIEnv *env,
         env->GetByteArrayRegion(extraData, 0, size, (jbyte *) codecContext->extradata);
     }
 
+    // opt decode speed.
+    codecContext->skip_loop_filter = AVDISCARD_ALL;
+    codecContext->skip_frame = AVDISCARD_DEFAULT;
     codecContext->thread_count = threads;
+    codecContext->thread_type = FF_THREAD_FRAME;
     codecContext->err_recognition = AV_EF_IGNORE_ERR;
     int result = avcodec_open2(codecContext, codec, nullptr);
     if (result < 0) {
@@ -169,6 +177,9 @@ JniContext *createVideoContext(JNIEnv *env,
         releaseContext(codecContext);
         return nullptr;
     }
+
+    // rotate
+    jniContext->rotate_degree = degree;
 
     jniContext->codecContext = codecContext;
 
@@ -194,9 +205,11 @@ JniContext *createVideoContext(JNIEnv *env,
     jniContext->init_for_yuv_frame_method = env->GetMethodID(outputBufferClass, "initForYuvFrame", "(IIIII)Z");
     jniContext->init_method = env->GetMethodID(outputBufferClass, "init", "(JILjava/nio/ByteBuffer;)V");
     jniContext->isAtLeastOutputStartTimeUs_method = env->GetMethodID(FfmpegVideoDecoderClass,"isAtLeastOutputStartTimeUs","(J)Z");
-
+    jniContext->display_width_field = env->GetFieldID(outputBufferClass, "width", "I");
+    jniContext->display_height_field = env->GetFieldID(outputBufferClass, "height", "I");
     // 检查所有JNI引用是否成功获取
     if (!jniContext->data_field || !jniContext->yuvStrides_field || !jniContext->yuvPlanes_field ||
+        !jniContext ->display_height_field || !jniContext->display_width_field ||
         !jniContext->init_for_yuv_frame_method || !jniContext->init_method || !jniContext->isAtLeastOutputStartTimeUs_method) {
         LOGE("Failed to get field or method IDs.");
         releaseContext(codecContext);
@@ -214,14 +227,15 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
                                                                                  jobject thiz,
                                                                                  jstring codec_name,
                                                                                  jbyteArray extra_data,
-                                                                                 jint threads) {
+                                                                                 jint threads,
+                                                                                 jint degree) {
     AVCodec *codec = getCodecByName(env, codec_name);
     if (!codec) {
         LOGE("Codec not found.");
         return 0L;
     }
 
-    return (jlong) createVideoContext(env, codec, extra_data, threads);
+    return (jlong) createVideoContext(env, codec, extra_data, threads ,degree);
 }
 
 extern "C"
@@ -243,13 +257,20 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpegRelease(JNIEnv *env, jobject thiz,
                                                                               jlong jContext) {
+    if(jContext == 0){
+        return;
+    }
     auto *const jniContext = reinterpret_cast<JniContext *>(jContext);
     AVCodecContext *context = jniContext->codecContext;
-    if (context) {
-        sws_freeContext(jniContext->swsContext);
-        releaseContext(context);
-        delete jniContext;
+    SwsContext *swsContext = jniContext->swsContext;
+    if (swsContext) {
+        sws_freeContext(swsContext);
+        jniContext->swsContext = nullptr;
     }
+    if (context) {
+        releaseContext(context);
+    }
+    delete jniContext;
 }
 
 extern "C"
@@ -258,13 +279,13 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
                                                                                   jobject thiz,
                                                                                   jlong jContext,
                                                                                   jobject surface,
-                                                                                  jobject output_buffer,
-                                                                                  jint displayed_width,
-                                                                                  jint displayed_height) {
+                                                                                  jobject output_buffer) {
     auto *const jniContext = reinterpret_cast<JniContext *>(jContext);
     if (!jniContext->MaybeAcquireNativeWindow(env, surface)) {
         return VIDEO_DECODER_ERROR_OTHER;
     }
+    auto displayed_width = env->GetIntField(output_buffer, jniContext->display_width_field);
+    auto displayed_height = env->GetIntField(output_buffer, jniContext->display_height_field);
 
     if (jniContext->native_window_width != displayed_width ||
         jniContext->native_window_height != displayed_height) {
@@ -283,7 +304,8 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
 
         // Initializing swsContext with AV_PIX_FMT_YUV420P, which is equivalent to YV12.
         // The only difference is the order of the u and v planes.
-        SwsContext *swsContext = sws_getContext(displayed_width, displayed_height,
+        SwsContext *swsContext = sws_getCachedContext(jniContext->swsContext,
+                                                      displayed_width, displayed_height,
                                                 jniContext->codecContext->pix_fmt,
                                                 displayed_width, displayed_height,
                                                 AV_PIX_FMT_YUV420P,
