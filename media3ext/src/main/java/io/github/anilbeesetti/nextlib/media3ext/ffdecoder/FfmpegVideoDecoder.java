@@ -264,6 +264,7 @@ final class FfmpegVideoDecoder
     void releaseOutputBuffer(VideoDecoderOutputBuffer outputBuffer) {
         synchronized (lock) {
 //            dav1dReleaseFrame(nativeContext, outputBuffer);
+            ffmpegReleaseFrame(nativeContext,outputBuffer);
             releaseOutputBufferInternal(outputBuffer);
             maybeNotifyDecodeLoop();
         }
@@ -343,6 +344,7 @@ final class FfmpegVideoDecoder
                 lock.wait();
             }
             if (released) {
+                flushInternal();
                 return false;
             }
             if (flushed) {
@@ -424,7 +426,7 @@ final class FfmpegVideoDecoder
                             }
                             outputBuffer.release();
                         } else {
-                            outputBuffer.format = inputBuffer.format;
+                            outputBuffer.format = FfmpegVideoDecoder.this.format;
                             outputBuffer.skippedOutputBufferCount = skippedOutputBufferCount;
                             skippedOutputBufferCount = 0;
                             queuedOutputBuffers.addLast(outputBuffer);
@@ -440,6 +442,7 @@ final class FfmpegVideoDecoder
                         }
                         if (released) {
                             releaseInputBufferInternal(inputBuffer);
+                            flushInternal();
                             return false;
                         }
                         if (flushed) {
@@ -606,6 +609,7 @@ final class FfmpegVideoDecoder
      */
     private native int ffmpegReceiveFrame(
             long context, int outputMode, VideoDecoderOutputBuffer outputBuffer, boolean decodeOnly);
+    private native void ffmpegReleaseFrame(long context,VideoDecoderOutputBuffer outputBuffer);
     private native int ffmpegDecode(long context,ByteBuffer encodedData,int offset,int length,long inputTime,int outputMode, VideoDecoderOutputBuffer outputBuffer ,boolean decodeOnly,boolean readOnly);
 
 }

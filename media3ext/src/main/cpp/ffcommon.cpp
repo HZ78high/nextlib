@@ -10,17 +10,17 @@
 /**
  * Releases the specified context.
  */
-void releaseContext(AVCodecContext *context) {
-    if (!context) {
+void releaseContext(AVCodecContext **context) {
+    if (!context || !*context) {
         return;
     }
-    SwrContext *swrContext;
-    if ((swrContext = (SwrContext *)context->opaque)) {
+    SwrContext *swrContext = reinterpret_cast<SwrContext *>((*context)->opaque);
+    if (swrContext) {
         swr_free(&swrContext);
-        context->opaque = nullptr;
+        (*context)->opaque = nullptr;
     }
-    av_freep(&context->extradata);
-    avcodec_free_context(&context);
+    av_freep(&(*context)->extradata);
+    avcodec_free_context(context);
 }
 
 /**

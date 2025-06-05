@@ -91,7 +91,7 @@ AVCodecContext *createContext(JNIEnv *env, AVCodec *codec, jbyteArray extraData,
                 (uint8_t *) av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
         if (!context->extradata) {
             LOGE("Failed to allocate extra data.");
-            releaseContext(context);
+            releaseContext(&context);
             return nullptr;
         }
         env->GetByteArrayRegion(extraData, 0, size, (jbyte *) context->extradata);
@@ -105,7 +105,7 @@ AVCodecContext *createContext(JNIEnv *env, AVCodec *codec, jbyteArray extraData,
     int result = avcodec_open2(context, codec, nullptr);
     if (result < 0) {
         logError("avcodec_open2", result);
-        releaseContext(context);
+        releaseContext(&context);
         return nullptr;
     }
     return context;
@@ -339,7 +339,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegAudioDecoder_ffmpe
     if (codecId == AV_CODEC_ID_TRUEHD) {
         // Release and recreate the context if the codec is TrueHD.
         // TODO: Figure out why flushing doesn't work for this codec.
-        releaseContext(context);
+        releaseContext(&context);
         auto *codec = const_cast<AVCodec *>(avcodec_find_decoder(codecId));
         if (!codec) {
             LOGE("Unexpected error finding codec %d.", codecId);
@@ -362,6 +362,6 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegAudioDecoder_ffmpe
                                                                      jobject thiz,
                                                                      jlong context) {
     if (context) {
-        releaseContext((AVCodecContext *) context);
+        releaseContext((AVCodecContext **)& context);
     }
 }

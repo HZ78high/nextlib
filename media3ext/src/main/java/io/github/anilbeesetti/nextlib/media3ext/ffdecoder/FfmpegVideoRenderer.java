@@ -130,8 +130,11 @@ public final class FfmpegVideoRenderer extends DecoderVideoRenderer {
             throw new FfmpegDecoderException(
                     "Failed to render output buffer to surface: decoder is not initialized.");
         }
-        decoder.renderToSurface(outputBuffer, surface);
-        outputBuffer.release();
+        try {
+            decoder.renderToSurface(outputBuffer, surface);
+        } finally {
+            outputBuffer.release();
+        }
     }
 
     @Override
