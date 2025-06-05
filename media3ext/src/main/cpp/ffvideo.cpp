@@ -5,7 +5,8 @@
 #include <android/native_window_jni.h>
 #include <algorithm>
 #include "ffcommon.h"
-
+#include <mutex>
+#include <deque>
 extern "C" {
 #ifdef __cplusplus
 #define __STDC_CONSTANT_MACROS
@@ -28,23 +29,25 @@ static const int VIDEO_DECODER_SUCCESS = 0;
 static const int VIDEO_DECODER_NEED_MORE_FRAME = -1;
 static const int VIDEO_DECODER_ERROR_OTHER = -2;
 static const int VIDEO_DECODER_ERROR_READ_FRAME = -3;
-static const int VIDEO_DECODER_ERROR_INVALID_Data = -4;
+static const int VIDEO_DECODER_ERROR_INVALID_DATA = -4;
 static const int VIDEO_DECODER_DROP_FRAME = 1;
 
-
+namespace {
 // YUV plane indices.
-const int kPlaneY = 0;
-const int kPlaneU = 1;
-const int kPlaneV = 2;
-const int kMaxPlanes = 3;
+    const int kPlaneY = 0;
+    const int kPlaneU = 1;
+    const int kPlaneV = 2;
+    const int kMaxPlanes = 3;
 
 // Android YUV format. See:
 // https://developer.android.com/reference/android/graphics/ImageFormat.html#YV12.
-const int kImageFormatYV12 = 0x32315659;
-
+    const int kImageFormatYV12 = 0x32315659;
+    constexpr int AlignTo16(int value) { return (value + 15) & (~15); }
+}
 struct JniContext {
     ~JniContext() {
         LOGE("~JniContext()");
+        clear_frames();
         if (native_window) {
             LOGE("Release native_window");
             ANativeWindow_release(native_window);
@@ -102,8 +105,9 @@ struct JniContext {
     jfieldID yuvStrides_field{};
     jmethodID init_for_yuv_frame_method{};
     jmethodID init_method{};
-    jmethodID isAtLeastOutputStartTimeUs_method{};
     jmethodID init_for_private_frame_method;
+    jmethodID isAtLeastOutputStartTimeUs_method{};
+    jmethodID add_skip_buffer_count_method{};
 
     AVCodecContext *codecContext{};
     SwsContext *swsContext{};
@@ -113,53 +117,35 @@ struct JniContext {
     int rotate_degree = 0;
     int native_window_width = 0;
     int native_window_height = 0;
+    void push_frame(AVFrame* frame) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stashed_frames.push_back(frame);
+    }
+
+    auto remain_frame_count() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return stashed_frames.size();
+    }
+
+    AVFrame* pop_frame() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stashed_frames.empty()) return nullptr;
+        AVFrame* frame = stashed_frames.front();
+        stashed_frames.pop_front();
+        return frame;
+    }
+
+    void clear_frames() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (AVFrame* frame : stashed_frames) {
+            av_frame_free(&frame);
+        }
+        stashed_frames.clear();
+    }
+private:
+    std::deque<AVFrame*> stashed_frames;
+    std::mutex mutex_;
 };
-constexpr int AlignTo16(int value) { return (value + 15) & (~15); }
-//JniContext *createVideoContext(JNIEnv *env,
-//                               AVCodec *codec,
-//                               jbyteArray extraData,
-//                               jint threads) {
-//    auto *jniContext = new JniContext();
-//
-//    AVCodecContext *codecContext = avcodec_alloc_context3(codec);
-//    if (!codecContext) {
-//        LOGE("Failed to allocate context.");
-//        return nullptr;
-//    }
-//
-//    if (extraData) {
-//        jsize size = env->GetArrayLength(extraData);
-//        codecContext->extradata_size = size;
-//        codecContext->extradata = (uint8_t *) av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
-//        if (!codecContext->extradata) {
-//            LOGE("Failed to allocate extradata.");
-//            releaseContext(&codecContext);
-//            return nullptr;
-//        }
-//        env->GetByteArrayRegion(extraData, 0, size, (jbyte *) codecContext->extradata);
-//    }
-//
-//    codecContext->thread_count = threads;
-//    codecContext->err_recognition = AV_EF_IGNORE_ERR;
-//    int result = avcodec_open2(codecContext, codec, nullptr);
-//    if (result < 0) {
-//        logError("avcodec_open2", result);
-//        releaseContext(&codecContext);
-//        return nullptr;
-//    }
-//
-//    jniContext->codecContext = codecContext;
-//
-//    // Populate JNI References.
-//    jclass outputBufferClass = env->FindClass("androidx/media3/decoder/VideoDecoderOutputBuffer");
-//    jniContext->data_field = env->GetFieldID(outputBufferClass, "data", "Ljava/nio/ByteBuffer;");
-//    jniContext->yuvStrides_field = env->GetFieldID(outputBufferClass, "yuvStrides", "[I");
-//    jniContext->yuvPlanes_field = env->GetFieldID(outputBufferClass, "yuvPlanes", "[Ljava/nio/ByteBuffer;");
-//    jniContext->init_for_yuv_frame_method = env->GetMethodID(outputBufferClass, "initForYuvFrame", "(IIIII)Z");
-//    jniContext->init_method = env->GetMethodID(outputBufferClass, "init", "(JILjava/nio/ByteBuffer;)V");
-//
-//    return jniContext;
-//}
 
 JniContext *createVideoContext(JNIEnv *env,
                                AVCodec *codec,
@@ -230,11 +216,12 @@ JniContext *createVideoContext(JNIEnv *env,
     jniContext->yuvPlanes_field = env->GetFieldID(outputBufferClass, "yuvPlanes", "[Ljava/nio/ByteBuffer;");
     jniContext->init_for_yuv_frame_method = env->GetMethodID(outputBufferClass, "initForYuvFrame", "(IIIII)Z");
     jniContext->init_method = env->GetMethodID(outputBufferClass, "init", "(JILjava/nio/ByteBuffer;)V");
-    jniContext->isAtLeastOutputStartTimeUs_method = env->GetMethodID(FfmpegVideoDecoderClass,"isAtLeastOutputStartTimeUs","(J)Z");
     jniContext->decoder_private_field = env->GetFieldID(outputBufferClass, "decoderPrivate", "J");
     jniContext->init_for_private_frame_method = env->GetMethodID(outputBufferClass, "initForPrivateFrame", "(II)V");
     jniContext->display_width_field = env->GetFieldID(outputBufferClass, "width", "I");
     jniContext->display_height_field = env->GetFieldID(outputBufferClass, "height", "I");
+    jniContext->isAtLeastOutputStartTimeUs_method = env->GetMethodID(FfmpegVideoDecoderClass,"isAtLeastOutputStartTimeUs","(J)Z");
+    jniContext->add_skip_buffer_count_method = env->GetMethodID(FfmpegVideoDecoderClass,"addSkipBufferCount","(I)V");
     // 检查所有JNI引用是否成功获取
     if (!jniContext->data_field || !jniContext->yuvStrides_field || !jniContext->yuvPlanes_field ||
         !jniContext ->display_height_field || !jniContext->display_width_field ||
@@ -272,6 +259,7 @@ JNIEXPORT jlong JNICALL
 Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpegReset(JNIEnv *env, jobject thiz,
                                                                             jlong jContext) {
     auto *const jniContext = reinterpret_cast<JniContext *>(jContext);
+    jniContext->clear_frames();
     AVCodecContext *context = jniContext->codecContext;
     if (!context) {
         LOGE("Tried to reset without a context.");
@@ -314,6 +302,12 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
                                                                                   jobject surface,
                                                                                   jobject output_buffer) {
     auto *const jniContext = reinterpret_cast<JniContext *>(jContext);
+    AVFrame* frame = reinterpret_cast<AVFrame*>(
+            env->GetLongField(output_buffer, jniContext->decoder_private_field));
+    if (frame == nullptr) {
+        LOGE("Failed to get frame.");
+        return VIDEO_DECODER_SUCCESS;
+    }
     if (!jniContext->MaybeAcquireNativeWindow(env, surface)) {
         return VIDEO_DECODER_ERROR_OTHER;
     }
@@ -366,12 +360,6 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         return VIDEO_DECODER_SUCCESS;
     } else if (result || native_window_buffer.bits == nullptr) {
         LOGE("kJniStatusANativeWindowError");
-        return VIDEO_DECODER_ERROR_OTHER;
-    }
-    AVFrame* frame = reinterpret_cast<AVFrame*>(
-            env->GetLongField(output_buffer, jniContext->decoder_private_field));
-    if (frame == nullptr) {
-        LOGE("Failed to get frame.");
         return VIDEO_DECODER_ERROR_OTHER;
     }
     // 直接用AVFrame的数据和linesize
@@ -469,14 +457,14 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
     // Queue input data.
     int result = avcodec_send_packet(avContext, packet);
     av_packet_free(&packet);
+    if (result == AVERROR(EAGAIN)){
+        return VIDEO_DECODER_ERROR_READ_FRAME;
+    }
     if (result) {
         logError("avcodec_send_packet-video", result);
         if (result == AVERROR_INVALIDDATA) {
             // need more data
-            return VIDEO_DECODER_ERROR_INVALID_Data;
-        } else if (result == AVERROR(EAGAIN)) {
-            // need read frame
-            return VIDEO_DECODER_ERROR_READ_FRAME;
+            return VIDEO_DECODER_ERROR_INVALID_DATA;
         } else {
             return VIDEO_DECODER_ERROR_OTHER;
         }
@@ -715,7 +703,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
             return VIDEO_DECODER_ERROR_READ_FRAME;
         }else if(result == AVERROR_INVALIDDATA){
             logError("avcodec_send_packet -error -Invalid data", result);
-            return VIDEO_DECODER_ERROR_INVALID_Data;
+            return VIDEO_DECODER_ERROR_INVALID_DATA;
         }
         else{
             logError("avcodec_send_packet -error", result);
@@ -753,4 +741,61 @@ JNIEXPORT void JNICALL
     if (frame != nullptr) {
         av_frame_free(&frame);
     }
+}
+extern "C"
+JNIEXPORT jint JNICALL
+Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpegReceiveAllFrame(JNIEnv *env,
+                                                                                                 jobject thiz,jlong jContext,
+                                                                                                 jobject output_buffer,jint output_mode){
+    if(!jContext){
+        return -1;
+    }
+    JniContext* const jniContext = reinterpret_cast<JniContext*>(jContext);
+    AVCodecContext *avContext = jniContext->codecContext;
+    auto frame = jniContext->pop_frame();
+    if (frame){
+        env->CallVoidMethod(output_buffer, jniContext->init_method, frame->pts, output_mode,
+                            nullptr);
+        env->SetLongField(output_buffer, jniContext->decoder_private_field,
+                          (uint64_t)frame);
+        env->CallVoidMethod(output_buffer, jniContext->init_for_private_frame_method,
+                            frame->width, frame->height);
+        return jniContext->remain_frame_count();
+    }
+    int ret;
+    int drop_frame_count = 0;
+    int read_count = 0;
+    frame = av_frame_alloc();
+    do {
+        ret = avcodec_receive_frame(avContext, frame);
+        if (ret == AVERROR(EAGAIN)) {
+            av_frame_free(&frame);
+            env->CallVoidMethod(thiz,jniContext->add_skip_buffer_count_method,drop_frame_count);
+            if (!read_count) return -1;
+            return jniContext->remain_frame_count();
+        }
+        if (ret){
+            av_frame_free(&frame);
+            return -2;
+        }
+        if (!env->CallBooleanMethod(thiz,
+                                   jniContext->isAtLeastOutputStartTimeUs_method,
+                                   frame->pts)){
+            drop_frame_count++;
+            av_frame_unref(frame);
+            continue;
+        }
+        if (!read_count){
+            env->CallVoidMethod(output_buffer, jniContext->init_method, frame->pts, output_mode,
+                                nullptr);
+            env->SetLongField(output_buffer, jniContext->decoder_private_field,
+                              (uint64_t)frame);
+            env->CallVoidMethod(output_buffer, jniContext->init_for_private_frame_method,
+                                frame->width, frame->height);
+        } else {
+            jniContext->push_frame(frame);
+        }
+        read_count++;
+        frame = av_frame_alloc();
+    } while (true);
 }

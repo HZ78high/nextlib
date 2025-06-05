@@ -89,6 +89,9 @@ final class FfmpegVideoDecoder
 
     @GuardedBy("lock")
     private long outputStartTimeUs;
+    @GuardedBy("lock")
+    @Nullable
+    private DecoderInputBuffer stashInput;
     /**
      * Creates a Ffmpeg video Decoder.
      *
@@ -485,6 +488,140 @@ final class FfmpegVideoDecoder
 
         return true;
     }
+    private boolean decodeTest() throws InterruptedException {
+        synchronized (lock) {
+            if (flushed) {
+                flushInternal();
+            }
+            while (!released && !(stashInput!=null || canDecodeInputBuffer()) && !flushed) {
+                lock.wait();
+            }
+            if (released) {
+                flushInternal();
+                return false;
+            }
+            if (flushed) {
+                // Flushed may have changed after lock.wait() is finished.
+                flushInternal();
+                // Queued Input Buffers have been cleared, there is no data to decode.
+                return true;
+            }
+            if (stashInput == null) {
+                stashInput = queuedInputBuffers.removeFirst();
+            }
+            if (stashInput.isEndOfStream()){
+                releaseInputBufferInternal(stashInput);
+                stashInput = null;
+                while (!released && !canDecodeOutputBuffer() && !flushed) {
+                    lock.wait();
+                }
+                if (released) {
+                    flushInternal();
+                    return false;
+                }
+                if (flushed) {
+                    // Flushed may have changed after lock.wait() is finished.
+                    flushInternal();
+                    // Queued Input Buffers have been cleared, there is no data to decode.
+                    return true;
+                }
+                VideoDecoderOutputBuffer outputBuffer = availableOutputBuffers[--availableOutputBufferCount];
+                outputBuffer.addFlag(C.BUFFER_FLAG_END_OF_STREAM);
+                outputBuffer.skippedOutputBufferCount = skippedOutputBufferCount;
+                skippedOutputBufferCount = 0;
+                queuedOutputBuffers.addLast(outputBuffer);
+                return true;
+            }
+        }
+        @Nullable FfmpegDecoderException exception = null;
+        try {
+            boolean isStart = stashInput.isFirstSample();
+            ByteBuffer inputData = Util.castNonNull(stashInput.data);
+            int inputOffset = inputData.position();
+            int inputSize = inputData.remaining();
+            int status = ffmpegSendPacket(nativeContext, inputData, inputOffset, inputSize, stashInput.timeUs);
+            if (status == VIDEO_DECODER_ERROR_INVAILD_DATA || status == VIDEO_DECODER_SUCCESS) {
+                if (status == VIDEO_DECODER_ERROR_INVAILD_DATA)
+                    ffmpegReset(nativeContext);
+                releaseInputBuffer(stashInput);
+                stashInput = null;
+                return true;
+            }
+            if (status==VIDEO_DECODER_ERROR_OTHER)
+                throw new FfmpegDecoderException("ffmpegDecode error: (see logcat)");
+            VideoDecoderOutputBuffer outputBuffer;
+            int remainFramesCount;
+            do {
+                synchronized (lock) {
+                    if (flushed) {
+                        flushInternal();
+                        return true;
+                    }
+                    while (!released && !canDecodeOutputBuffer() && !flushed) {
+                        lock.wait();
+                    }
+                    if (released) {
+                        flushInternal();
+                        return false;
+                    }
+                    if (flushed) {
+                        // Flushed may have changed after lock.wait() is finished.
+                        flushInternal();
+                        // Queued Input Buffers have been cleared, there is no data to decode.
+                        return true;
+                    }
+                    outputBuffer = availableOutputBuffers[--availableOutputBufferCount];
+                }
+                remainFramesCount = ffmpegReceiveAllFrame(nativeContext, outputBuffer, outputMode);
+                if (remainFramesCount < -1) {
+                    throw new FfmpegDecoderException("Read Frame Error");
+                }
+                synchronized (lock) {
+                    if (flushed) {
+                        outputBuffer.release();
+                        flushInternal();
+                        return true;
+                    }
+                    if (remainFramesCount == -1) {
+                        outputBuffer.release();
+                        break;
+                    }
+                    outputBuffer.format = this.format;
+                    outputBuffer.skippedOutputBufferCount = skippedOutputBufferCount;
+                    skippedOutputBufferCount = 0;
+                    if (isStart){
+                        isStart = false;
+                        outputBuffer.addFlag(C.BUFFER_FLAG_FIRST_SAMPLE);
+                    }
+                    queuedOutputBuffers.addLast(outputBuffer);
+                }
+            }while (remainFramesCount-- > 0);
+        }catch (RuntimeException e) {
+            // This can occur if a sample is malformed in a way that the decoder is not robust against.
+            // We don't want the process to die in this case, but we do want to propagate the error.
+            exception = createUnexpectedDecodeException(e);
+        } catch (OutOfMemoryError e) {
+            // This can occur if a sample is malformed in a way that causes the decoder to think it
+            // needs to allocate a large amount of memory. We don't want the process to die in this
+            // case, but we do want to propagate the error.
+            exception = createUnexpectedDecodeException(e);
+        }catch (FfmpegDecoderException e){
+            exception = e;
+        }
+        if (exception != null) {
+            synchronized (lock) {
+                this.exception = exception;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    private void addSkipBufferCount(int count){
+        synchronized (lock){
+            skippedOutputBufferCount+=count;
+        }
+    }
 
     @GuardedBy("lock")
     private void maybeThrowException() throws FfmpegDecoderException {
@@ -531,6 +668,10 @@ final class FfmpegVideoDecoder
     @GuardedBy("lock")
     private void flushInternal() {
         skippedOutputBufferCount = 0;
+        if (stashInput !=null){
+            releaseInputBuffer(stashInput);
+            stashInput = null;
+        }
         if (dequeuedInputBuffer != null) {
             releaseInputBufferInternal(dequeuedInputBuffer);
             dequeuedInputBuffer = null;
@@ -547,7 +688,7 @@ final class FfmpegVideoDecoder
 
     private void run() {
         try {
-            while (decode()) {
+            while (decodeTest()) {
                 // Do nothing.
             }
         } catch (InterruptedException e) {
@@ -611,5 +752,6 @@ final class FfmpegVideoDecoder
             long context, int outputMode, VideoDecoderOutputBuffer outputBuffer, boolean decodeOnly);
     private native void ffmpegReleaseFrame(long context,VideoDecoderOutputBuffer outputBuffer);
     private native int ffmpegDecode(long context,ByteBuffer encodedData,int offset,int length,long inputTime,int outputMode, VideoDecoderOutputBuffer outputBuffer ,boolean decodeOnly,boolean readOnly);
+    private native int ffmpegReceiveAllFrame(long context,VideoDecoderOutputBuffer outputBuffer,int outputMode);
 
 }
