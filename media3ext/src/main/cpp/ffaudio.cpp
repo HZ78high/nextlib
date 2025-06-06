@@ -91,7 +91,7 @@ AVCodecContext *createContext(JNIEnv *env, AVCodec *codec, jbyteArray extraData,
                 (uint8_t *) av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
         if (!context->extradata) {
             LOGE("Failed to allocate extra data.");
-            releaseContext(context);
+            releaseContext(&context);
             return nullptr;
         }
         env->GetByteArrayRegion(extraData, 0, size, (jbyte *) context->extradata);
@@ -99,14 +99,13 @@ AVCodecContext *createContext(JNIEnv *env, AVCodec *codec, jbyteArray extraData,
     if (context->codec_id == AV_CODEC_ID_PCM_MULAW ||
         context->codec_id == AV_CODEC_ID_PCM_ALAW) {
         context->sample_rate = rawSampleRate;
-        context->ch_layout.nb_channels = rawChannelCount;
         av_channel_layout_default(&context->ch_layout, rawChannelCount);
     }
     context->err_recognition = AV_EF_IGNORE_ERR;
     int result = avcodec_open2(context, codec, nullptr);
     if (result < 0) {
         logError("avcodec_open2", result);
-        releaseContext(context);
+        releaseContext(&context);
         return nullptr;
     }
     return context;
@@ -340,14 +339,14 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegAudioDecoder_ffmpe
     if (codecId == AV_CODEC_ID_TRUEHD) {
         // Release and recreate the context if the codec is TrueHD.
         // TODO: Figure out why flushing doesn't work for this codec.
-        releaseContext(context);
+        auto outputFloat =
+                (jboolean) (context->request_sample_fmt == OUTPUT_FORMAT_PCM_FLOAT);
+        releaseContext(&context);
         auto *codec = const_cast<AVCodec *>(avcodec_find_decoder(codecId));
         if (!codec) {
             LOGE("Unexpected error finding codec %d.", codecId);
             return 0L;
         }
-        auto outputFloat =
-                (jboolean) (context->request_sample_fmt == OUTPUT_FORMAT_PCM_FLOAT);
         return (jlong) createContext(env, codec, extra_data, outputFloat,
                 /* rawSampleRate= */ -1,
                 /* rawChannelCount= */ -1);
@@ -363,6 +362,6 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegAudioDecoder_ffmpe
                                                                      jobject thiz,
                                                                      jlong context) {
     if (context) {
-        releaseContext((AVCodecContext *) context);
+        releaseContext((AVCodecContext **)& context);
     }
 }

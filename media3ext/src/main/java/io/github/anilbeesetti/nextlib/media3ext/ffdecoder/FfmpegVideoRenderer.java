@@ -130,15 +130,19 @@ public final class FfmpegVideoRenderer extends DecoderVideoRenderer {
             throw new FfmpegDecoderException(
                     "Failed to render output buffer to surface: decoder is not initialized.");
         }
-        decoder.renderToSurface(outputBuffer, surface);
-        outputBuffer.release();
+        try {
+            decoder.renderToSurface(outputBuffer, surface);
+        } finally {
+            outputBuffer.release();
+        }
     }
 
     @Override
     protected Decoder<DecoderInputBuffer, ? extends VideoDecoderOutputBuffer, ? extends DecoderException> createDecoder(Format format, @Nullable CryptoConfig cryptoConfig) throws DecoderException {
         TraceUtil.beginSection("createFfmpegVideoDecoder");
         int initialInputBufferSize = format.maxInputSize != Format.NO_VALUE ? format.maxInputSize : DEFAULT_INPUT_BUFFER_SIZE;
-        FfmpegVideoDecoder decoder = new FfmpegVideoDecoder(numInputBuffers, numOutputBuffers, initialInputBufferSize, threads, format);
+        int t = Math.min(Math.max(threads/2,2),6);
+        FfmpegVideoDecoder decoder = new FfmpegVideoDecoder(numInputBuffers, numOutputBuffers, initialInputBufferSize, t, format);
         this.decoder = decoder;
         TraceUtil.endSection();
         return decoder;

@@ -7,4 +7,5 @@
 }
 -keep class io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegVideoDecoder {
     boolean isAtLeastOutputStartTimeUs(long);
+    void addSkipBufferCount(int);
 }

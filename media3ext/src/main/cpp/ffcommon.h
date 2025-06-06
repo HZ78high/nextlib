@@ -27,7 +27,7 @@ extern "C" {
 /**
  * Releases the specified context.
  */
-void releaseContext(AVCodecContext *context);
+void releaseContext(AVCodecContext **context);
 
 /**
 * Returns the AVCodec with the specified name, or NULL if it is not available.
