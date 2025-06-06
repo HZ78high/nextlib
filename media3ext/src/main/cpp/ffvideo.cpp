@@ -229,6 +229,7 @@ JniContext *createVideoContext(JNIEnv *env,
     // 检查所有JNI引用是否成功获取
     if (!jniContext->data_field || !jniContext->yuvStrides_field || !jniContext->yuvPlanes_field ||
         !jniContext ->display_height_field || !jniContext->display_width_field ||
+        !jniContext->add_skip_buffer_count_method||!jniContext->skipped_output_buffer_count_field||
         !jniContext ->decoder_private_field || !jniContext->init_for_private_frame_method||
         !jniContext->init_for_yuv_frame_method || !jniContext->init_method || !jniContext->isAtLeastOutputStartTimeUs_method) {
         LOGE("Failed to get field or method IDs.");
