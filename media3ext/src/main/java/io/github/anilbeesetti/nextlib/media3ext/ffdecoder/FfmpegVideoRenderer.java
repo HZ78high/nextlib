@@ -24,7 +24,7 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener;
 
 @UnstableApi
 public final class FfmpegVideoRenderer extends DecoderVideoRenderer {
-
+    public static final int FLAG_ENABLE_HEVC = 1;
     private static final String TAG = "FfmpegVideoRenderer";
 
     private static final int DEFAULT_NUM_OF_INPUT_BUFFERS = 4;
@@ -43,6 +43,8 @@ public final class FfmpegVideoRenderer extends DecoderVideoRenderer {
 
     private final int threads;
 
+    private final int formatEnableFlags;
+
     @Nullable private FfmpegVideoDecoder decoder;
 
     /**
@@ -60,7 +62,8 @@ public final class FfmpegVideoRenderer extends DecoderVideoRenderer {
             long allowedJoiningTimeMs,
             @Nullable Handler eventHandler,
             @Nullable VideoRendererEventListener eventListener,
-            int maxDroppedFramesToNotify) {
+            int maxDroppedFramesToNotify,
+            int formatEnableFlags) {
         this(
                 allowedJoiningTimeMs,
                 eventHandler,
@@ -68,7 +71,8 @@ public final class FfmpegVideoRenderer extends DecoderVideoRenderer {
                 maxDroppedFramesToNotify,
                 /* threads= */ getRuntime().availableProcessors(),
                 DEFAULT_NUM_OF_INPUT_BUFFERS,
-                DEFAULT_NUM_OF_OUTPUT_BUFFERS);
+                DEFAULT_NUM_OF_OUTPUT_BUFFERS,
+                formatEnableFlags);
     }
 
     /**
@@ -92,11 +96,13 @@ public final class FfmpegVideoRenderer extends DecoderVideoRenderer {
             int maxDroppedFramesToNotify,
             int threads,
             int numInputBuffers,
-            int numOutputBuffers) {
+            int numOutputBuffers,
+            int formatEnableFlags) {
         super(allowedJoiningTimeMs, eventHandler, eventListener, maxDroppedFramesToNotify);
         this.threads = threads;
         this.numInputBuffers = numInputBuffers;
         this.numOutputBuffers = numOutputBuffers;
+        this.formatEnableFlags = formatEnableFlags;
     }
 
     @Override
@@ -108,6 +114,10 @@ public final class FfmpegVideoRenderer extends DecoderVideoRenderer {
     @RendererCapabilities.Capabilities
     public final int supportsFormat(Format format) {
         String mimeType = Assertions.checkNotNull(format.sampleMimeType);
+        if(MimeTypes.VIDEO_H265.equals(mimeType)
+                && (formatEnableFlags & FLAG_ENABLE_HEVC) == 0) {
+            return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE);
+        }
         if (!FfmpegLibrary.isAvailable() || !MimeTypes.isVideo(mimeType)) {
             return C.FORMAT_UNSUPPORTED_TYPE;
         } else if (!FfmpegLibrary.supportsFormat(format.sampleMimeType)) {

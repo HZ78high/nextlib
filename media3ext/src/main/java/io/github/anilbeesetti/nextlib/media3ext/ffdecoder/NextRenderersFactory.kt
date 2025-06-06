@@ -17,7 +17,23 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 
 @UnstableApi
 open class NextRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
+    @JvmInline
+    value class Flags(val value: Int) {
+        companion object {
+            val FLAG_ENABLE_HEVC = Flags(1)
+//            val FLAG_ENABLE_VP9 = Flags(1 shl 1)
+            // 更多 flag...
+        }
 
+        operator fun plus(other: Flags): Flags = Flags(this.value or other.value)
+
+        operator fun contains(flag: Flags): Boolean = (this.value and flag.value) == flag.value
+    }
+    private var enabledFlags: Flags = Flags(0)
+    fun setEnableFormatFlag(flag: Flags):DefaultRenderersFactory{
+        this.enabledFlags += flag
+        return this
+    }
     override fun buildAudioRenderers(
         context: Context,
         extensionRendererMode: Int,
@@ -91,7 +107,8 @@ open class NextRenderersFactory(context: Context) : DefaultRenderersFactory(cont
         }
 
         try {
-            val renderer = FfmpegVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener, MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
+            val renderer = FfmpegVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener
+                , MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY,enabledFlags.value)
             out.add(extensionRendererIndex++, renderer)
             Log.i(TAG, "Loaded FfmpegVideoRenderer.")
         } catch (e: java.lang.Exception) {
