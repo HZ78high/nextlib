@@ -103,6 +103,7 @@ struct JniContext {
     jfieldID display_height_field{};
     jfieldID yuvPlanes_field{};
     jfieldID yuvStrides_field{};
+    jfieldID skipped_output_buffer_count_field{};
     jmethodID init_for_yuv_frame_method{};
     jmethodID init_method{};
     jmethodID init_for_private_frame_method;
@@ -135,12 +136,14 @@ struct JniContext {
         return frame;
     }
 
-    void clear_frames() {
+    size_t clear_frames() {
         std::lock_guard<std::mutex> lock(mutex_);
+        auto size = stashed_frames.size();
         for (AVFrame* frame : stashed_frames) {
             av_frame_free(&frame);
         }
         stashed_frames.clear();
+        return size;
     }
 private:
     std::deque<AVFrame*> stashed_frames;
@@ -220,6 +223,7 @@ JniContext *createVideoContext(JNIEnv *env,
     jniContext->init_for_private_frame_method = env->GetMethodID(outputBufferClass, "initForPrivateFrame", "(II)V");
     jniContext->display_width_field = env->GetFieldID(outputBufferClass, "width", "I");
     jniContext->display_height_field = env->GetFieldID(outputBufferClass, "height", "I");
+    jniContext->skipped_output_buffer_count_field = env->GetFieldID(outputBufferClass,"skippedOutputBufferCount","I");
     jniContext->isAtLeastOutputStartTimeUs_method = env->GetMethodID(FfmpegVideoDecoderClass,"isAtLeastOutputStartTimeUs","(J)Z");
     jniContext->add_skip_buffer_count_method = env->GetMethodID(FfmpegVideoDecoderClass,"addSkipBufferCount","(I)V");
     // 检查所有JNI引用是否成功获取
@@ -755,6 +759,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
     JniContext* const jniContext = reinterpret_cast<JniContext*>(jContext);
     AVCodecContext *avContext = jniContext->codecContext;
     AVFrame *frame = nullptr;
+    size_t drop_frame_count = 0;
     if (!decodeOnly) {
         frame = jniContext->pop_frame();
         if (frame) {
@@ -767,20 +772,24 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
             return jniContext->remain_frame_count();
         }
     } else{
-        jniContext->clear_frames();
+        drop_frame_count +=jniContext->clear_frames();
     }
 
     int ret;
-    int drop_frame_count = 0;
     int read_count = 0;
     frame = av_frame_alloc();
     do {
         ret = avcodec_receive_frame(avContext, frame);
         if (ret == AVERROR(EAGAIN)) {
             av_frame_free(&frame);
-            env->CallVoidMethod(thiz,jniContext->add_skip_buffer_count_method,drop_frame_count);
-            LOGI("read_count: %d\ndrop_frame_count: %d",read_count,drop_frame_count);
-            if (!read_count) return -1;
+            LOGI("read_count: %d\ndrop_frame_count: %d decodeOnly: %d",read_count,drop_frame_count,decodeOnly);
+            if (decodeOnly) {
+                if (drop_frame_count > 0) {
+                    env->CallVoidMethod(thiz, jniContext->add_skip_buffer_count_method,
+                                        drop_frame_count);
+                }
+                return -1;
+            }
             return jniContext->remain_frame_count();
         }
         if (ret){
@@ -789,9 +798,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         }
 
         LOGI("time: %lld",frame->pts);
-        if (decodeOnly || !env->CallBooleanMethod(thiz,
-                                   jniContext->isAtLeastOutputStartTimeUs_method,
-                                   frame->pts)){
+        if (decodeOnly){
             drop_frame_count++;
             av_frame_unref(frame);
             continue;

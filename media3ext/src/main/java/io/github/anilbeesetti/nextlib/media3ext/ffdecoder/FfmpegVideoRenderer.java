@@ -141,7 +141,8 @@ public final class FfmpegVideoRenderer extends DecoderVideoRenderer {
     protected Decoder<DecoderInputBuffer, ? extends VideoDecoderOutputBuffer, ? extends DecoderException> createDecoder(Format format, @Nullable CryptoConfig cryptoConfig) throws DecoderException {
         TraceUtil.beginSection("createFfmpegVideoDecoder");
         int initialInputBufferSize = format.maxInputSize != Format.NO_VALUE ? format.maxInputSize : DEFAULT_INPUT_BUFFER_SIZE;
-        FfmpegVideoDecoder decoder = new FfmpegVideoDecoder(numInputBuffers, numOutputBuffers, initialInputBufferSize, threads, format);
+        int t = Math.min(Math.max(threads/2,2),6);
+        FfmpegVideoDecoder decoder = new FfmpegVideoDecoder(numInputBuffers, numOutputBuffers, initialInputBufferSize, t, format);
         this.decoder = decoder;
         TraceUtil.endSection();
         return decoder;
