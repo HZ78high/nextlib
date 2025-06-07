@@ -2,7 +2,6 @@ package io.github.anilbeesetti.nextlib.media3ext.ffdecoder
 
 import android.content.Context
 import android.os.Handler
-import androidx.media3.common.C
 import androidx.media3.common.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -18,10 +17,10 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 @UnstableApi
 open class NextRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
     @JvmInline
-    value class Flags(val value: Int) {
+    value class Flags(private val value: Int) {
         companion object {
             val FLAG_ENABLE_HEVC = Flags(1)
-//            val FLAG_ENABLE_VP9 = Flags(1 shl 1)
+            val FLAG_DISABLE_FFMPEG_AUDIO_DECODER = Flags(1 shl 1)
             // 更多 flag...
         }
 
@@ -30,8 +29,12 @@ open class NextRenderersFactory(context: Context) : DefaultRenderersFactory(cont
         operator fun contains(flag: Flags): Boolean = (this.value and flag.value) == flag.value
     }
     private var enabledFlags: Flags = Flags(0)
-    fun setEnableFormatFlag(flag: Flags):DefaultRenderersFactory{
-        this.enabledFlags += flag
+    fun setFlags(flag: Flags):NextRenderersFactory{
+        this.enabledFlags = flag
+        return this
+    }
+    fun addFlags(flag: Flags):NextRenderersFactory{
+        this.enabledFlags +=flag
         return this
     }
     override fun buildAudioRenderers(
@@ -57,7 +60,8 @@ open class NextRenderersFactory(context: Context) : DefaultRenderersFactory(cont
         out.add(audioRenderer)
 
 
-        if (extensionRendererMode == EXTENSION_RENDERER_MODE_OFF) return
+        if (extensionRendererMode == EXTENSION_RENDERER_MODE_OFF
+            && Flags.FLAG_DISABLE_FFMPEG_AUDIO_DECODER in enabledFlags) return
 
         var extensionRendererIndex = out.size
         if (extensionRendererMode == EXTENSION_RENDERER_MODE_PREFER) {
@@ -93,8 +97,6 @@ open class NextRenderersFactory(context: Context) : DefaultRenderersFactory(cont
                 .setEventHandler(eventHandler)
                 .setEventListener(eventListener)
                 .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
-                .experimentalSetLateThresholdToDropDecoderInputUs(C.TIME_UNSET)
-                .experimentalSetParseAv1SampleDependencies(true)
                 .build()
         out.add(videoRenderer)
 
@@ -107,8 +109,9 @@ open class NextRenderersFactory(context: Context) : DefaultRenderersFactory(cont
         }
 
         try {
+            val flag = if (Flags.FLAG_ENABLE_HEVC in enabledFlags) FfmpegVideoRenderer.FLAG_ENABLE_HEVC else 0
             val renderer = FfmpegVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener
-                , MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY,enabledFlags.value)
+                , MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY,flag)
             out.add(extensionRendererIndex++, renderer)
             Log.i(TAG, "Loaded FfmpegVideoRenderer.")
         } catch (e: java.lang.Exception) {
@@ -119,5 +122,10 @@ open class NextRenderersFactory(context: Context) : DefaultRenderersFactory(cont
 
     companion object {
         const val TAG = "NextRenderersFactory"
+        inline fun buildFlags(block: MutableList<Flags>.() -> Unit): Flags {
+            val list = mutableListOf<Flags>()
+            block(list)
+            return list.fold(Flags(0)) { acc, flag -> acc + flag }
+        }
     }
 }
