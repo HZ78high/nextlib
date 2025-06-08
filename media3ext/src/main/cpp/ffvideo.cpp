@@ -46,10 +46,10 @@ namespace {
 }
 struct JniContext {
     ~JniContext() {
-        LOGE("~JniContext()");
+        LOGI("~JniContext()");
         clear_frames();
         if (native_window) {
-            LOGE("Release native_window");
+            LOGI("Release native_window");
             ANativeWindow_release(native_window);
         }
     }
@@ -64,7 +64,7 @@ struct JniContext {
                 env->DeleteGlobalRef(surface);
                 surface = nullptr;
             }
-            LOGE("New Surface is nullptr");
+            LOGI("New Surface is nullptr");
             return false;
         }
         if (surface && env->IsSameObject(surface, new_surface)) {
@@ -78,7 +78,7 @@ struct JniContext {
             env->DeleteGlobalRef(surface);
             surface = nullptr;
         }
-        LOGE("New Surface");
+        LOGI("New Surface");
         native_window_width = 0;
         native_window_height = 0;
         native_window = ANativeWindow_fromSurface(env, new_surface);
@@ -321,7 +321,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
 
     if (jniContext->native_window_width != displayed_width ||
         jniContext->native_window_height != displayed_height) {
-        LOGE("ANativeWindow_setBuffersGeometry width: %d height %d\nCurrent window: width: %d height: %d"
+        LOGI("ANativeWindow_setBuffersGeometry width: %d height %d\nCurrent window: width: %d height: %d"
              ,displayed_width,displayed_height,jniContext->native_window_width,jniContext->native_window_height);
         if (ANativeWindow_setBuffersGeometry(
                 jniContext->native_window,
