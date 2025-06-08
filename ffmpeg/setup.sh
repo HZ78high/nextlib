@@ -78,7 +78,7 @@ function downloadLibAom() {
 
 function downloadDAV1D() {
   pushd "$SOURCES_DIR"
-  echo "Downloading Aom source code of version $DAV1D_VERSION..."
+  echo "Downloading DAV1D source code of version $DAV1D_VERSION..."
   DAV1D_FILE="dav1d-$DAV1D_VERSION.tar.gz"
   curl -L "https://code.videolan.org/videolan/dav1d/-/archive/${DAV1D_VERSION}/dav1d-${DAV1D_VERSION}.tar.gz" -o $DAV1D_FILE
   [ -e "$DAV1D_FILE" ] || { echo "$DAV1D_FILE does not exist. Exiting..."; exit 1; }
