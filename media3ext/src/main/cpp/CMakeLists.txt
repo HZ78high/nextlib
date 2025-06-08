@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.22.1)
 
 # Declares and names the project.
 
-project("media3ext")
+project(media3ext C CXX)
 string(TOLOWER "${CMAKE_BUILD_TYPE}" build_type)
 if(build_type MATCHES "^rel")
     add_compile_options("-O2")
@@ -44,8 +44,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
         # List libraries link to the target library
-        log
-        android
-        ${ffmpeg_libs_names})
+        PRIVATE log
+        PRIVATE android
+        PRIVATE ${ffmpeg_libs_names})
 target_link_options(${CMAKE_PROJECT_NAME}
         PRIVATE "-Wl,-z,max-page-size=16384")
