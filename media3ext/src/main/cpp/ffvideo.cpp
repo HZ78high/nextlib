@@ -263,6 +263,9 @@ extern "C"
 JNIEXPORT jlong JNICALL
 Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpegReset(JNIEnv *env, jobject thiz,
                                                                             jlong jContext) {
+    if (jContext == 0){
+        return 0;
+    }
     auto *const jniContext = reinterpret_cast<JniContext *>(jContext);
     jniContext->clear_frames();
     AVCodecContext *context = jniContext->codecContext;
@@ -295,6 +298,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
     }
     if (surface!= nullptr){
         env->DeleteGlobalRef(surface);
+        jniContext->surface = nullptr;
     }
     delete jniContext;
 }
@@ -306,6 +310,9 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
                                                                                   jlong jContext,
                                                                                   jobject surface,
                                                                                   jobject output_buffer) {
+    if (jContext == 0){
+        return VIDEO_DECODER_ERROR_OTHER;
+    }
     auto *const jniContext = reinterpret_cast<JniContext *>(jContext);
     AVFrame* frame = reinterpret_cast<AVFrame*>(
             env->GetLongField(output_buffer, jniContext->decoder_private_field));
@@ -359,7 +366,8 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         }
         jniContext->native_window = nullptr;
         if (jniContext->surface != nullptr) {
-            env->DeleteGlobalRef(surface);
+            LOGE("DeleteGlobalRef when result = -19 (No such device)");
+            env->DeleteGlobalRef(jniContext->surface);
         }
         jniContext->surface = nullptr;
         return VIDEO_DECODER_SUCCESS;
@@ -450,6 +458,9 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
                                                                                  jint offset,
                                                                                  jint length,
                                                                                  jlong input_time) {
+    if (jContext == 0){
+        return VIDEO_DECODER_ERROR_OTHER;
+    }
     auto *const jniContext = reinterpret_cast<JniContext *>(jContext);
     AVCodecContext *avContext = jniContext->codecContext;
 
