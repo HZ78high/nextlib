@@ -320,12 +320,13 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         LOGE("Failed to get frame.");
         return VIDEO_DECODER_SUCCESS;
     }
+
+    auto displayed_width = env->GetIntField(output_buffer, jniContext->display_width_field);
+    auto displayed_height = env->GetIntField(output_buffer, jniContext->display_height_field);
+    retry_acquire:
     if (!jniContext->MaybeAcquireNativeWindow(env, surface)) {
         return VIDEO_DECODER_ERROR_OTHER;
     }
-    auto displayed_width = env->GetIntField(output_buffer, jniContext->display_width_field);
-    auto displayed_height = env->GetIntField(output_buffer, jniContext->display_height_field);
-
     if (jniContext->native_window_width != displayed_width ||
         jniContext->native_window_height != displayed_height) {
         LOGI("ANativeWindow_setBuffersGeometry width: %d height %d\nCurrent window: width: %d height: %d"
@@ -366,11 +367,10 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         }
         jniContext->native_window = nullptr;
         if (jniContext->surface != nullptr) {
-            LOGE("DeleteGlobalRef when result = -19 (No such device)");
             env->DeleteGlobalRef(jniContext->surface);
         }
         jniContext->surface = nullptr;
-        return VIDEO_DECODER_SUCCESS;
+        goto retry_acquire;
     } else if (result || native_window_buffer.bits == nullptr) {
         LOGE("kJniStatusANativeWindowError");
         return VIDEO_DECODER_ERROR_OTHER;
