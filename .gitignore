@@ -10,5 +10,5 @@
 .kotlin/
 
 /ffmpeg/build/
-/ffmpeg/output/
+/ffmpeg/output*/
 /ffmpeg/sources/

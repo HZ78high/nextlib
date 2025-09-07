@@ -2,10 +2,10 @@
 
 # Versions
 DAV1D_VERSION="1.5.1"
-VPX_VERSION="1.15.1"
+VPX_VERSION="1.15.2"
 AOM_VERSION="3.12.1"
-MBEDTLS_VERSION="3.6.3"
-FFMPEG_VERSION="7.1.1"
+MBEDTLS_VERSION="3.6.4"
+FFMPEG_VERSION="8.0"
 export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$HOME/Android-dv/nkd/android-ndk-r28}"
 CMAKE_HOME="${CMAKE_HOME_PATH:-/mnt/c/_Linux/cmake-4.0.0-linux-x86_64}"
 #if [ -n "$ANDROID_SDK_HOME" ]; then
@@ -91,9 +91,9 @@ function downloadMbedTLS() {
   pushd "$SOURCES_DIR"
   echo "Downloading mbedtls source code of version $MBEDTLS_VERSION..."
   MBEDTLS_FILE="mbedtls-$MBEDTLS_VERSION.tar.gz"
-  curl -L "https://github.com/Mbed-TLS/mbedtls/archive/refs/tags/v${MBEDTLS_VERSION}.tar.gz" -o $MBEDTLS_FILE
+  curl -L "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-${MBEDTLS_VERSION}/mbedtls-${MBEDTLS_VERSION}.tar.bz2" -o $MBEDTLS_FILE
   [ -e "$MBEDTLS_FILE" ] || { echo "$MBEDTLS_FILE does not exist. Exiting..."; exit 1; }
-  tar -zxf "$MBEDTLS_FILE"
+  tar -xf "$MBEDTLS_FILE"
   rm "$MBEDTLS_FILE"
   popd
 }
@@ -435,7 +435,6 @@ function buildFfmpeg() {
       --disable-vulkan \
       --disable-avdevice \
       --disable-avformat \
-      --disable-postproc \
       --disable-avfilter \
       --disable-symver \
       --enable-parsers \
