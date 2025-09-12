@@ -1,9 +1,9 @@
 [versions]
-publish="1.1.5"
+publish="1.1.6"
 cmake="3.31.6"
 androidNdk="28.1.13356709"
 agp = "8.13.0"
-kotlin = "2.2.10"
+kotlin = "2.2.20"
 androidxMedia3 = "1.8.0"
 checkerQual = "3.50.0"
 googleErrorProne = "2.41.0"

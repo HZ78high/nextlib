@@ -545,9 +545,19 @@ final class FfmpegVideoDecoder
             decodeOnly = !isAtLeastOutputStartTimeUs(stashInput.timeUs);
             if (status == VIDEO_DECODER_ERROR_INVAILD_DATA) {
                 synchronized (lock) {
+                    if (released){
+                        flushInternal();
+                        return false;
+                    }
+                    if (flushed){
+                        flushInternal();
+                        return true;
+                    }
                     ffmpegReset(nativeContext);
                     skippedOutputBufferCount++;
-                    releaseInputBufferInternal(stashInput);
+                    if (stashInput != null) {
+                        releaseInputBufferInternal(stashInput);
+                    }
                     stashInput = null;
                     return true;
                 }
@@ -559,6 +569,10 @@ final class FfmpegVideoDecoder
                 throw new FfmpegDecoderException("ffmpegDecode error: (see logcat)");
             if (decodeOnly){
                 synchronized (lock){
+                    if (released){
+                        flushInternal();
+                        return false;
+                    }
                     if (flushed){
                         flushInternal();
                         return true;
@@ -592,6 +606,11 @@ final class FfmpegVideoDecoder
                         throw new FfmpegDecoderException("Read Frame Error");
                     }
                     synchronized (lock) {
+                        if(released){
+                            outputBuffer.release();
+                            flushInternal();
+                            return false;
+                        }
                         if (flushed) {
                             outputBuffer.release();
                             flushInternal();
@@ -614,7 +633,17 @@ final class FfmpegVideoDecoder
             }
             if (status == VIDEO_DECODER_SUCCESS){
                 synchronized (lock){
-                    releaseInputBufferInternal(stashInput);
+                    if (released){
+                        flushInternal();
+                        return false;
+                    }
+                    if (flushed){
+                        flushInternal();
+                        return true;
+                    }
+                    if (stashInput != null) {
+                        releaseInputBufferInternal(stashInput);
+                    }
                     stashInput = null;
                 }
             }
